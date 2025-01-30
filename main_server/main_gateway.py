@@ -28,18 +28,15 @@ CONFIGS_DIR = Path("./confs")
 CONFIGS_DIR.mkdir(exist_ok=True)
 
 class RequestUser(BaseModel):
-    user_request: int
+    user_id: int
 
 
 async def get_conf(user_id: int, server: Servers, db: Session = Depends(get_db)) -> str:
-    """
-    Запрашивает конфигурацию у VPN-сервера и сохраняет её на диск.
-    """
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"http://{server.ip}/get_conf/",#поменять на server.id
-                json={"filename": str(user_id)}
+                f"http://{server.ip}/generate-config/",
+                json={"user_id": user_id}
             )
 
             # Сохраняем конфигурацию на диск
@@ -80,8 +77,11 @@ async def get_available_server(data: RequestUser, db: Session = Depends(get_db))
         raise HTTPException(status_code=503, detail="Все серверы заполнены")
 
     # Создаем конфигурацию для пользователя
-    config_path = await get_conf(data.user_request, available_server, db)
+    config_path = await get_conf(data.user_id, available_server, db)
     if not config_path:
         raise HTTPException(status_code=500, detail="Не удалось создать конфигурацию")
+    available_server.count_users += 1
+    db.commit()
+    
 
     return FileResponse(config_path, filename=f"{data.user_request}.conf")
