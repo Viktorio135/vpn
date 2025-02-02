@@ -3,14 +3,11 @@ from sqlalchemy import and_
 
 from .models import IPAddress, Clients
 
-def get_free_ip_from_pool(db: Session, server_id: int) -> str:
+def get_free_ip_from_pool(db: Session) -> str:
     """Возвращает свободный IP из пула сервера."""
     # Ищем первый свободный адрес для указанного сервера
     ip = db.query(IPAddress).filter(
-        and_(
-            IPAddress.server_id == server_id,
             IPAddress.is_used == False
-        )
     ).first()
 
     if not ip:

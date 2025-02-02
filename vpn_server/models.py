@@ -17,3 +17,4 @@ class Clients(Base):
     client_id = Column(BigInteger)
     privat_key = Column(String(500))
     public_key = Column(String(500))
+
