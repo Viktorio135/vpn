@@ -9,6 +9,7 @@ class IPAddress(Base):
     id = Column(Integer, primary_key=True)
     address = Column(String(15), unique=True)  # Пример: "10.0.0.2"
     is_used = Column(Boolean, default=False)   # Занят ли адрес
+    client_id = Column(BigInteger, default=0)
 
 class Clients(Base):
     __tablename__ = "clients"

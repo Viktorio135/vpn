@@ -20,7 +20,7 @@ from pathlib import Path
 
 from .database import Base, engine, get_db
 from .models import IPAddress
-from .crud import get_free_ip_from_pool, create_client
+from .crud import *
 
 load_dotenv()
 
@@ -61,7 +61,7 @@ def initialize():
 
 def register_server():
     global TOKEN
-    if TOKEN == 'None':
+    if TOKEN is None:
         response = requests.post(
             f'http://{MAIN_SERVER}/register_server/',
             json={
@@ -78,7 +78,8 @@ def register_server():
             logger.error('Не удалось подключиться к главному серверу')
         else:
             data = response.json()
-            os.environ['TOKEN'] = data['token']
+            with open('.env', 'a') as env_file:
+                env_file.write(f"TOKEN='{data['token']}'\n")
             TOKEN = data['token']
             logger.info('Подключение к главному серверу выполнено')
     else:
@@ -149,6 +150,68 @@ def add_client_to_server_config(client_public_key: str, client_ip: str):
     if result.returncode != 0:
         logger.error(f"Ошибка syncconf: {result.stderr}")
         raise subprocess.CalledProcessError(result.returncode, result.args)
+    
+def delete_client_from_server_config(client_public_key: str):
+    """Полное удаление пира из конфига и runtime"""
+    config_path = Path("/etc/wireguard/wg0.conf")
+    
+    # Шаг 1: Удаление из runtime-конфигурации
+    try:
+        subprocess.run(
+            ["sudo", "wg", "set", "wg0", "peer", client_public_key, "remove"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+    except subprocess.CalledProcessError as e:
+        if "No such peer" not in e.stderr:
+            raise RuntimeError(f"Ошибка удаления из runtime: {e.stderr}")
+
+    # Шаг 2: Удаление из конфиг-файла
+    config_content = config_path.read_text().splitlines()
+    new_content = []
+    peer_block = []
+    in_target_peer = False
+
+    for line in config_content:
+        if line.strip() == "[Peer]":
+            if peer_block:
+                if not in_target_peer:
+                    new_content.extend(peer_block)
+                peer_block = []
+            in_target_peer = False
+            peer_block.append(line)
+        elif peer_block:
+            peer_block.append(line)
+            if line.strip().startswith("PublicKey ="):
+                current_key = line.split("=", 1)[1].strip()
+                if current_key == client_public_key:
+                    in_target_peer = True
+        else:
+            new_content.append(line)
+
+    # Добавляем последний блок, если не целевой
+    if peer_block and not in_target_peer:
+        new_content.extend(peer_block)
+
+    # Запись нового конфига
+    config_path.write_text("\n".join(new_content) + "\n")
+
+    # Шаг 3: Принудительная синхронизация
+    command = "sudo bash -c 'wg syncconf wg0 <(wg-quick strip wg0)'"
+    result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+    if result.returncode != 0:
+        logger.error(f"Ошибка syncconf: {result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, result.args)
+
+
+
 
 class ClientRequest(BaseModel):
     user_id: int
@@ -160,7 +223,7 @@ async def generate_config(request: ClientRequest, db: Session = Depends(get_db))
     private_key, public_key = generate_keys()
     
     # Выделяем IP 
-    client_ip = get_free_ip_from_pool(db) 
+    client_ip = get_free_ip_from_pool(db, request.user_id) 
     
     # Создаем конфиг клиента
     config = f"""[Interface]
@@ -195,6 +258,42 @@ PersistentKeepalive = 25
             filename=config_filename,
             media_type="application/octet-stream"
         )
+
+
+
+@app.post("/delete-config/")
+async def delete_config(
+    request: ClientRequest, 
+    db: Session = Depends(get_db)
+):
+    # Получаем клиента из БД
+    client = get_client_by_id(db, request.user_id)
+    if not client:
+        raise HTTPException(404, "Клиент не найден")
+
+    try:
+        delete_client_from_server_config(client.public_key)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Ошибка удаления клиента: {e}")
+        raise HTTPException(500, "Ошибка настройки сервера")
+
+    # Удаляем клиента из БД и освобождаем IP
+    delete = delete_client(db, request.user_id)
+    if not delete:
+        raise HTTPException(404, 'Ошибка при удалении данных')
+    
+    # Удаляем файл конфига
+    config_path = CONFIGS_DIR / f"{request.user_id}.conf"
+    if config_path.exists():
+        config_path.unlink()
+    
+    return {"status": "success"}
+
+
+
+
+
+
 
 
 

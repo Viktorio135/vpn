@@ -126,3 +126,5 @@ def create_token(db: Session, server_id: int, token: str):
         db.rollback()
         logger.error(f"Error creating token: {e}")
         return None
+    
+
