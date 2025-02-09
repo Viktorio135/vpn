@@ -18,9 +18,9 @@ from pathlib import Path
 
 
 
-from .database import Base, engine, get_db
-from .models import IPAddress
-from .crud import *
+from database import Base, engine, get_db
+from models import IPAddress
+from crud import *
 
 load_dotenv()
 
@@ -131,7 +131,7 @@ def generate_keys() -> tuple[str, str]:
     
     return private_key, public_key
 
-def add_client_to_server_config(client_public_key: str, client_ip: str):
+def add_client_to_server_config(client_public_key: str, client_ip: IPAddress):
     """Добавляет клиента в конфиг сервера."""
     peer_config = f"\n[Peer]\nPublicKey = {client_public_key}\nAllowedIPs = {client_ip}/32\n"
     
@@ -213,11 +213,15 @@ def delete_client_from_server_config(client_public_key: str):
 
 
 
-class ClientRequest(BaseModel):
+class CreateClientRequest(BaseModel):
     user_id: int
+    config_name: str 
+    token: str
 
 @app.post("/generate-config/")
-async def generate_config(request: ClientRequest, db: Session = Depends(get_db)):
+async def generate_config(request: CreateClientRequest, db: Session = Depends(get_db)):
+    if request.token != TOKEN:
+        raise HTTPException(status_code=401, detail='Unauthorized')
 
     # Генерируем ключи
     private_key, public_key = generate_keys()
@@ -228,7 +232,7 @@ async def generate_config(request: ClientRequest, db: Session = Depends(get_db))
     # Создаем конфиг клиента
     config = f"""[Interface]
 PrivateKey = {private_key}
-Address = {client_ip}/24
+Address = {client_ip.address}/24
 DNS = {DNS}
 
 [Peer]
@@ -237,8 +241,8 @@ Endpoint = {SERVER_ENDPOINT}:443
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 """
-    
-    config_filename = f"{request.user_id}.conf"
+
+    config_filename = f"{request.user_id}_{request.config_name}.conf"
     config_path = CONFIGS_DIR / config_filename
         
     with open(config_path, "w") as f:
@@ -246,13 +250,23 @@ PersistentKeepalive = 25
 
     # Добавляем клиента на сервер
     try:
-        add_client_to_server_config(public_key, client_ip)
+        add_client_to_server_config(public_key, client_ip.address)
     except subprocess.CalledProcessError as e:
         logger.error(f"Ошибка добавления клиента: {e}")
-        raise HTTPException(500, "Ошибка настройки сервера")
+        raise HTTPException(500, "Ошибка добавления клиента")
     
     # Сохраняем в бд
-    create_client(db, int(request.user_id), private_key, public_key)    
+    client = create_client(
+        db=db, 
+        client_id=request.user_id, 
+        private_key=private_key, 
+        public_key=public_key, 
+        ip_address=client_ip.id, config_name=request.config_name
+    )    
+    if not client:
+        logger.error(f"Ошибка создания клиента")
+        raise HTTPException(500, "Ошибка создания клиента")
+    
     return FileResponse(
             path=config_path,
             filename=config_filename,
@@ -260,14 +274,25 @@ PersistentKeepalive = 25
         )
 
 
+class DeleteClientRequest(BaseModel):
+    user_id: int
+    config_name: str 
+    token: str
+
+
 
 @app.post("/delete-config/")
 async def delete_config(
-    request: ClientRequest, 
+    request: DeleteClientRequest, 
     db: Session = Depends(get_db)
 ):
+    
+    if request.token != TOKEN:
+        raise HTTPException(status_code=401, detail='Unauthorized')
+
     # Получаем клиента из БД
-    client = get_client_by_id(db, request.user_id)
+    client = get_client_by_id(db, request.user_id, request.config_name)
+    ip = db.query(IPAddress).filter(IPAddress.id == client.ip_address).first()
     if not client:
         raise HTTPException(404, "Клиент не найден")
 
@@ -278,12 +303,13 @@ async def delete_config(
         raise HTTPException(500, "Ошибка настройки сервера")
 
     # Удаляем клиента из БД и освобождаем IP
-    delete = delete_client(db, request.user_id)
+    delete = delete_client(db, request.user_id, request.config_name, ip.address)
     if not delete:
         raise HTTPException(404, 'Ошибка при удалении данных')
     
     # Удаляем файл конфига
-    config_path = CONFIGS_DIR / f"{request.user_id}.conf"
+    config_filename = f"{request.user_id}_{request.config_name}.conf"
+    config_path = CONFIGS_DIR / config_filename
     if config_path.exists():
         config_path.unlink()
     
@@ -299,35 +325,38 @@ async def delete_config(
 
 @app.get('/status')
 async def get_status():
-    global prev_net_io, prev_time
-    cpu = psutil.cpu_percent(interval=1)
-    memory = psutil.virtual_memory().percent
+    try:
+        global prev_net_io, prev_time
+        cpu = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory().percent
 
 
-    current_net_io = psutil.net_io_counters()
-    current_time = time.time()
+        current_net_io = psutil.net_io_counters()
+        current_time = time.time()
 
-    # Вычисляем разницу в байтах
-    bytes_sent = current_net_io.bytes_sent - prev_net_io.bytes_sent
-    bytes_recv = current_net_io.bytes_recv - prev_net_io.bytes_recv
-    
+        # Вычисляем разницу в байтах
+        bytes_sent = current_net_io.bytes_sent - prev_net_io.bytes_sent
+        bytes_recv = current_net_io.bytes_recv - prev_net_io.bytes_recv
+        
 
-    # Вычисляем разницу во времени
-    time_diff = current_time - prev_time
+        # Вычисляем разницу во времени
+        time_diff = current_time - prev_time
 
-    mb_sent = bytes_sent / (1024 * 1024)
-    mb_recv = bytes_recv / (1024 * 1024)
+        mb_sent = bytes_sent / (1024 * 1024)
+        mb_recv = bytes_recv / (1024 * 1024)
 
-    mb_sent_per_sec = mb_sent / time_diff
-    mb_recv_per_sec = mb_recv / time_diff
+        mb_sent_per_sec = mb_sent / time_diff
+        mb_recv_per_sec = mb_recv / time_diff
 
-    # Обновляем предыдущие значения
-    prev_net_io = current_net_io
-    prev_time = current_time
+        # Обновляем предыдущие значения
+        prev_net_io = current_net_io
+        prev_time = current_time
 
-    return {
-        "cpu": cpu,
-        "memory": memory,
-        "sent_traffic": mb_sent_per_sec,
-        "recv_traffic": mb_recv_per_sec,
-    }
+        return {
+            "cpu": cpu,
+            "memory": memory,
+            "sent_traffic": mb_sent_per_sec,
+            "recv_traffic": mb_recv_per_sec,
+        }
+    except Exception:
+        raise HTTPException(status_code=500, detail='Ошибка в получении статуса сервера')

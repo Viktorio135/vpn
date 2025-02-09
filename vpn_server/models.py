@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Boolean, ForeignKey, Integer, BigInteger
 
-from .database import Base
+from database import Base
 
 
 class IPAddress(Base):
@@ -18,4 +18,6 @@ class Clients(Base):
     client_id = Column(BigInteger)
     privat_key = Column(String(500))
     public_key = Column(String(500))
+    config_name = Column(String(100), unique=True)
+    ip_address = Column(Integer, ForeignKey('ip_addresses.id'))
 

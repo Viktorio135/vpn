@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
-from .models import IPAddress, Clients
+from models import IPAddress, Clients
 
 def get_free_ip_from_pool(db: Session, user_id: int) -> str:
     """Возвращает свободный IP из пула сервера."""
@@ -17,37 +17,37 @@ def get_free_ip_from_pool(db: Session, user_id: int) -> str:
     ip.is_used = True
     ip.client_id = user_id
     db.commit()
+    db.refresh(ip)
+    return ip
 
-    return ip.address
 
-
-def get_client_by_id(db: Session, client_id: int):
-    client = db.query(Clients).filter(Clients.client_id == client_id)
+def get_client_by_id(db: Session, client_id: int, config_name: str):
+    client = db.query(Clients).filter(Clients.client_id == client_id, Clients.config_name == config_name).first()
     if client:
-        return client.first()
+        return client
     return None
 
-def create_client(db: Session, client_id: int, private_key: str, public_key: str):
-    client = db.query(Clients).filter(Clients.client_id == client_id).first()
-    if not client:
+def create_client(db: Session, client_id: int, private_key: str, public_key: str, ip_address: int, config_name:  str):
         client = Clients(
             client_id=client_id,
             privat_key=private_key,
-            public_key=public_key
+            public_key=public_key,
+            ip_address=ip_address,
+            config_name=config_name,
         )
         db.add(client)
         db.commit()
         return client
-    return None
 
 
-def delete_client(db: Session, client_id: int):
-    client = db.query(Clients).filter(Clients.client_id == client_id).first()
-    ip_adress = db.query(IPAddress).filter(IPAddress.client_id == client_id).first()
-    if client and ip_adress:
+def delete_client(db: Session, client_id: int, config_name: str, ip: int):
+    client = db.query(Clients).filter(Clients.client_id == client_id, Clients.config_name == config_name).first()
+    ip_address = db.query(IPAddress).filter(IPAddress.address == ip, IPAddress.client_id == client_id).first()
+    if client and ip_address:
         db.delete(client)
-        ip_adress.is_used = False
-        ip_adress.client_id = 0
+        ip_address.is_used = False
+        ip_address.client_id = 0
         db.commit()
         return 1
     return 0
+
