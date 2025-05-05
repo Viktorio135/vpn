@@ -26,8 +26,7 @@ load_dotenv()
 # Настройки
 API_BASE_URL = os.getenv('API_BASE_URL')
 BOT_TOKEN = os.getenv('TOKEN')
-# CRYPTO_BOT_TOKEN = '379657:AACdYBPUW05buTuTfXrcHLKeZsWvazfyUY1'
-CRYPTO_BOT_TOKEN = '37095:AA2jaocnYRvKNn859X5XnqJnEaCvPlPZJmj'
+CRYPTO_BOT_TOKEN = os.getenv('CRYPTO_BOT_TOKEN')
 
 bot = Bot(token=BOT_TOKEN)
 pay = CryptoPay(CRYPTO_BOT_TOKEN, TESTNET)
