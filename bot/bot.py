@@ -4,6 +4,7 @@ import time
 import httpx
 import uuid
 import re
+import logging
 
 from dotenv import load_dotenv
 from datetime import datetime
@@ -26,8 +27,7 @@ from pydantic import BaseModel
 from aiosend import CryptoPay, TESTNET
 from aiosend.types import Invoice
 
-
-from tronpy import Tron
+# from tronpy import Tron
 from tronpy.providers import HTTPProvider
 
 load_dotenv()
@@ -36,6 +36,10 @@ load_dotenv()
 API_BASE_URL = os.getenv('API_BASE_URL')
 BOT_TOKEN = os.getenv('TOKEN')
 CRYPTO_BOT_TOKEN = os.getenv('CRYPTO_BOT_TOKEN')
+
+
+logger = logging.getLogger(__name__)
+
 
 bot = Bot(token=BOT_TOKEN)
 pay = CryptoPay(CRYPTO_BOT_TOKEN, TESTNET)
@@ -49,12 +53,11 @@ class PaymentState(StatesGroup):
     AWAITING_PAYMENT = State()
 
 
-# Настройки TRON
-TRONGRID_API_KEY='2fe0e177-e3d8-46ec-84c1-060cb4f35d63'
+TRONGRID_API_KEY = os.getenv('TRONGRID_API_KEY')
 TRON_PROVIDER = HTTPProvider(api_key=TRONGRID_API_KEY)
-TRON_NETWORK = "nile"
-USDT_CONTRACT_ADDRESS = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
-DEPOSIT_ADDRESS = 'TYhTGjSJhiUcnTE4hCWckNt6Bb6YDHgndi'
+TRON_NETWORK = os.getenv('TRON_NETWORK', 'nile')
+USDT_CONTRACT_ADDRESS = os.getenv('USDT_CONTRACT_ADDRESS')
+DEPOSIT_ADDRESS = os.getenv('DEPOSIT_ADDRESS')
 
 
 class ConfigInfo(BaseModel):
@@ -71,8 +74,10 @@ async def api_request(method: str, endpoint: str, data: dict = None):
             response.raise_for_status()
             return response.json(), response.status_code
         except httpx.HTTPStatusError as e:
-            print(f"API error: {e}")
-            return None
+            return None, e.response.status_code
+        except Exception as e:
+            logging.error(f"API request error: {e}")
+            return None, 500
 
 
 async def create_new_conf(data: dict):
@@ -84,8 +89,10 @@ async def create_new_conf(data: dict):
             response.raise_for_status()
             return response.content, response.status_code
         except httpx.HTTPStatusError as e:
-            print(f"API error: {e}")
-            return None
+            return None, e.response.status_code
+        except Exception as e:
+            logging.error(f"Error creating new config: {e}")
+            return None, 500
 
 
 async def get_conf_data(config_id: int, data: dict = None):
@@ -95,8 +102,7 @@ async def get_conf_data(config_id: int, data: dict = None):
             response.raise_for_status()
             return response
         except httpx.HTTPStatusError as e:
-            print(f"API error: {e}")
-            return None
+            return None, e.response.status_code
 
 
 @dp.message(Command("start"))
@@ -106,7 +112,7 @@ async def start_handler(msg: Message):
             "GET",
             f"/user/{user_id}/",
         )
-    if user["status_code"] == 200:
+    if status_code == 200:
         await msg.answer(
             "Вы попали в главное меню!",
             reply_markup=main_menu()
@@ -135,7 +141,7 @@ async def start_handler(msg: Message):
 def main_menu():
     buttons = [
         [KeyboardButton(text="📁 Мои конфигурации")],
-        [KeyboardButton(text="💳 Приобрести/продлить")],
+        [KeyboardButton(text="💳 Приобрести")],
         [KeyboardButton(text="❓ Помощь")]
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
@@ -306,7 +312,7 @@ async def handle_payment(invoice: Invoice, message: types.Message, data: list):
             )
 
 
-@dp.message(F.text == '💳 Приобрести/продлить')
+@dp.message(F.text == '💳 Приобрести')
 async def show_payment_options(message: types.Message):
     builder = InlineKeyboardBuilder()
 
