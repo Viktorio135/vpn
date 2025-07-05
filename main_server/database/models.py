@@ -1,6 +1,8 @@
 import datetime
-from sqlalchemy import Column, DateTime, Integer, String, ForeignKey, Boolean, Float
-from .database import Base
+from sqlalchemy import (Column, DateTime, Integer, String,
+                        ForeignKey, Boolean, Float, BigInteger)
+from main_server.database.database import Base
+
 
 class Servers(Base):
     __tablename__ = "servers"
@@ -17,19 +19,23 @@ class Servers(Base):
     memory_usage = Column(Float, default=0)
     sent_traffic = Column(Float, default=0)
     recv_traffic = Column(Float, default=0)
-   
 
-class Client(Base):
-    __tablename__ = "clients"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(255), unique=True, index=True)
-    private_key = Column(String(255))
-    public_key = Column(String(255))
-    server_id = Column(Integer, ForeignKey("servers.id"))
-    ip_address = Column(String(15))
+class User(Base):
+    __tablename__ = "users"
+    # id = Column(Integer, primary_key=True)
+    client_id = Column(BigInteger, primary_key=True)
+
+
+class WGConfig(Base):
+    __tablename__ = "wireguard_configs"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.client_id'), index=True)
+    server_id = Column(Integer, ForeignKey('servers.id'))
+    config_name = Column(String(100))  # Пользовательское имя конфига
     created_at = Column(DateTime, default=datetime.datetime.now)
-
+    expires_at = Column(DateTime)      # Срок действия конфига
 
 
 class Tokens(Base):
@@ -37,6 +43,3 @@ class Tokens(Base):
     id = Column(Integer, primary_key=True, index=True)
     server = Column(Integer, ForeignKey('servers.id'))
     token = Column(String(40))
-
-    
-

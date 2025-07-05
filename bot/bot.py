@@ -1,7 +1,9 @@
 import json
 import os
+import time
 import httpx
 import uuid
+import re
 
 from dotenv import load_dotenv
 from datetime import datetime
@@ -17,9 +19,16 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery
 from pydantic import BaseModel
 from aiosend import CryptoPay, TESTNET
 from aiosend.types import Invoice
+
+
+from tronpy import Tron
+from tronpy.providers import HTTPProvider
 
 load_dotenv()
 
@@ -31,6 +40,21 @@ CRYPTO_BOT_TOKEN = os.getenv('CRYPTO_BOT_TOKEN')
 bot = Bot(token=BOT_TOKEN)
 pay = CryptoPay(CRYPTO_BOT_TOKEN, TESTNET)
 dp = Dispatcher()
+
+
+class PaymentState(StatesGroup):
+    start_time = State()
+    CHOOSE_METHOD = State()
+    AWAITING_WALLET = State()
+    AWAITING_PAYMENT = State()
+
+
+# Настройки TRON
+TRONGRID_API_KEY='2fe0e177-e3d8-46ec-84c1-060cb4f35d63'
+TRON_PROVIDER = HTTPProvider(api_key=TRONGRID_API_KEY)
+TRON_NETWORK = "nile"
+USDT_CONTRACT_ADDRESS = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
+DEPOSIT_ADDRESS = 'TYhTGjSJhiUcnTE4hCWckNt6Bb6YDHgndi'
 
 
 class ConfigInfo(BaseModel):
@@ -55,7 +79,7 @@ async def create_new_conf(data: dict):
     async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
         try:
             response = await client.request(
-                "POST", "/get_available_server/", json=data
+                "POST", "/server/get_available_server/", json=data
             )
             response.raise_for_status()
             return response.content, response.status_code
@@ -88,7 +112,7 @@ async def start_handler(msg: Message):
             reply_markup=main_menu()
         )
     else:
-        await api_request("POST", "/create_user/", {"user_id": user_id})
+        await api_request("POST", "/user/create_user/", {"user_id": user_id})
 
         # Создаем бесплатную конфигурацию
         try:
@@ -305,29 +329,205 @@ async def show_payment_options(message: types.Message):
         reply_markup=builder.as_markup()
     )
 
-
 @dp.callback_query(F.data.startswith("subscribe_"))
-async def process_payment(callback: types.CallbackQuery):
+async def process_payment(callback: types.CallbackQuery, state: FSMContext):
     days = int(callback.data.split("_")[1])
     amount = {
-        30: 15,
-        90: 25,
-        180: 40
-    }.get(days, 5)
+        30: 1.5,
+        90: 2.5,
+        180: 4.0
+    }.get(days, 0.5)
 
-    invoice = await pay.create_invoice(
-        amount, "USDT"
+    await state.update_data(days=days, amount=amount)
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="CryptoBot", callback_data="method_crypto"),
+        InlineKeyboardButton(text="TRC20 (0% комиссий)", callback_data="method_tron")
     )
-    invoice.poll(message=callback.message, data={
-        'user_id': callback.from_user.id,
-        'days': days
-    })
-
+    
     await callback.message.answer(
-        f"💸 Оплатите {amount} USDT через криптобота:\n"
-        f"<a href='{invoice.bot_invoice_url}'>Ссылка для оплаты</a>\n\n",
+        "Выберите способ оплаты:",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(PaymentState.CHOOSE_METHOD)
+
+# Обработчик выбора метода оплаты
+@dp.callback_query(PaymentState.CHOOSE_METHOD, F.data.startswith("method_"))
+async def handle_payment_method(callback: types.CallbackQuery, state: FSMContext):
+    method = callback.data.split("_")[1]
+    data = await state.get_data()
+
+    if method == "crypto":
+        invoice = await pay.create_invoice(data['amount'], "USDT")
+        invoice.poll(message=callback.message, data={
+            'user_id': callback.from_user.id,
+            'days': data['days']
+        })
+        await callback.message.answer(
+            f"💸 Оплатите {data['amount']} USDT:\n"
+            f"<a href='{invoice.bot_invoice_url}'>Ссылка для оплаты</a>",
+            parse_mode="HTML"
+        )
+        await state.clear()
+    
+    elif method == "tron":
+        await callback.message.answer(
+            "Введите ваш TRC20-адрес USDT для проверки транзакции:"
+        )
+        await state.set_state(PaymentState.AWAITING_WALLET)
+
+
+# Обработчик TRC20 адреса
+@dp.message(PaymentState.AWAITING_WALLET)
+async def process_tron_wallet(message: Message, state: FSMContext):
+    if not re.match(r'^T[1-9A-HJ-NP-Za-km-z]{33}$', message.text):
+        await message.answer("❌ Неверный формат кошелька! Попробуйте снова:")
+        return
+    
+    await state.update_data(wallet=message.text)
+    await state.update_data(start_time=int(time.time() * 1000))
+    data = await state.get_data()
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Я перевел", callback_data="check_tron")]
+    ])
+    
+    await message.answer(
+        f"📥 Отправьте <b>{data['amount']} USDT</b> на адрес:\n"
+        f"<code>{DEPOSIT_ADDRESS}</code>\n\n"
+        "После отправки нажмите кнопку ниже для проверки.",
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
+    await state.set_state(PaymentState.AWAITING_PAYMENT)
+
+
+async def check_tron_transaction(sender: str, amount: float, min_timestamp: int) -> dict:
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://nile.trongrid.io/v1/accounts/{DEPOSIT_ADDRESS}/transactions/trc20",
+                params={
+                    "limit": 50,
+                    "contract_address": USDT_CONTRACT_ADDRESS,
+                    "only_confirmed": "true",
+                    "order_by": "block_timestamp,desc"
+                },
+                headers={"TRON-PRO-API-KEY": TRONGRID_API_KEY}
+            )
+
+            transactions = response.json().get('data', [])
+            for tx in transactions:
+                if (
+                    tx['from'] == sender and
+                    tx['to'] == DEPOSIT_ADDRESS and
+                    float(tx['value']) / 1_000_000 >= amount - 0.1 and
+                    tx['block_timestamp'] >= min_timestamp
+                ):
+                    return {
+                        'status': 'success',
+                        'tx_hash': tx['transaction_id'],
+                        'amount': float(tx['value']) / 1_000_000
+                    }
+
+            return {'status': 'not_found'}
+
+    except Exception as e:
+        print(f"TRON API error: {e}")
+        return {'status': 'error', 'message': str(e)}
+
+
+# Обработчик проверки платежа
+@dp.callback_query(PaymentState.AWAITING_PAYMENT, F.data.in_(["check_tron", "recheck_tron"]))
+async def check_tron_payment(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    await callback.message.edit_reply_markup()
+
+    try:
+        result = await check_tron_transaction(
+            sender=data['wallet'],
+            amount=data['amount'],
+            min_timestamp=data['start_time']
+        )
+
+        if result['status'] == 'success':
+            if abs(result['amount'] - data['amount']) > 0.1:
+                await callback.message.answer(
+                    f"⚠️ Обнаружен платеж, но сумма не совпадает!\n"
+                    f"Отправлено: {result['amount']} USDT\n"
+                    f"Требуется: {data['amount']} USDT\n\n"
+                    "Обратитесь в поддержку."
+                )
+                return
+
+            file_content, status_code = await create_new_conf({
+                "user_id": callback.from_user.id,
+                "config_name": str(uuid.uuid4()),
+                "months": data['days']
+            })
+
+            if status_code == 200:
+                file_name = f"{callback.from_user.id}.conf"
+                with open(file_name, "wb") as f:
+                    f.write(file_content)
+
+                await callback.message.answer_document(
+                    FSInputFile(file_name),
+                    caption=(
+                        "✅ Платеж подтвержден!\n"
+                        f"Хэш транзакции: {result['tx_hash']}\n"
+                        f"Сумма: {result['amount']} USDT\n"
+                        "Ваша конфигурация:"
+                    )
+                )
+                os.remove(file_name)
+            else:
+                await callback.message.answer("❌ Ошибка создания конфигурации. Обратитесь в поддержку.")
+        elif result['status'] == 'not_found':
+            await callback.message.answer(
+                "⚠️ Платеж не обнаружен. Убедитесь, что:\n"
+                "1. Вы отправили USDT на адрес\n"
+                "2. Сумма и сеть TRC20 верны\n"
+                "3. Прошло немного времени и транзакция подтверждена\n\n"
+                "Проверку можно повторить позже.",
+                parse_mode="Markdown"
+            )
+
+            # Добавим кнопку повторной проверки
+            retry_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔁 Проверить ещё раз", callback_data="recheck_tron")]
+            ])
+            await callback.message.answer("Хотите повторить проверку позже?", reply_markup=retry_kb)
+        else:
+            await callback.message.answer(f"🚨 Ошибка проверки: {result['message']}")
+    except Exception as e:
+        await callback.message.answer("🚨 Критическая ошибка системы. Мы уже работаем над исправлением.")
+
+    # Не очищаем состояние, чтобы пользователь мог повторить проверку
+
+# @dp.callback_query(F.data.startswith("subscribe_"))
+# async def process_payment(callback: types.CallbackQuery):
+#     days = int(callback.data.split("_")[1])
+#     amount = {
+#         30: 15,
+#         90: 25,
+#         180: 40
+#     }.get(days, 5)
+
+#     invoice = await pay.create_invoice(
+#         amount, "USDT"
+#     )
+#     invoice.poll(message=callback.message, data={
+#         'user_id': callback.from_user.id,
+#         'days': days
+#     })
+
+#     await callback.message.answer(
+#         f"💸 Оплатите {amount} USDT через криптобота:\n"
+#         f"<a href='{invoice.bot_invoice_url}'>Ссылка для оплаты</a>\n\n",
+#         parse_mode="HTML"
+#     )
 
 
 # @dp.callback_query(F.data.startswith("confirm_payment_"))
