@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Boolean, ForeignKey, Integer, BigInteger
 
-from vpn_server.database.database import Base
+from database.database import Base
 
 
 class IPAddress(Base):

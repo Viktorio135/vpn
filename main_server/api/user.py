@@ -6,13 +6,12 @@ from fastapi.exceptions import HTTPException
 
 from schemas.user import UserCreate, DeleteRequestUser
 from schemas.config import ConfigInfoResponse
-from main_server.database.repository import (
+from database.repository import (
     UserRepository,
     ConfigRepository,
     ServerRepository,
     TokenRepository,
 )
-from main_gateway import CONFIGS_DIR
 from dependencies import (
     get_user_repo,
     get_config_repo,
@@ -70,6 +69,9 @@ async def delete_user(
             status_code=500,
             detail='Невозможно обратиться к впн серверу'
         )
+
+    from main_gateway import CONFIGS_DIR
+
 
     path = CONFIGS_DIR / f"{data.user_id}_{data.config_name}.conf"
 

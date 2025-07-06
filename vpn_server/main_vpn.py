@@ -8,7 +8,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 
-from vpn_server.database.database import Base, engine, get_db
+from database.database import Base, engine, get_db
 from core.ip_pool import init_ip_pool, register_server
 from api.client import router as client_router
 from api.status import router as status_router
@@ -16,9 +16,6 @@ from api.status import router as status_router
 
 load_dotenv()
 
-
-prev_net_io = psutil.net_io_counters()
-prev_time = time.time()
 
 
 CONFIGS_DIR = Path("./configs")
@@ -39,7 +36,7 @@ MAIN_SERVER = os.getenv('MAIN_SERVER')
 
 
 @asynccontextmanager
-def lifespan():
+async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     db = next(get_db())
     init_ip_pool(db, SERVER_IP_POOL, SERVER_IP_POOL)

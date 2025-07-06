@@ -6,10 +6,10 @@ from fastapi.exceptions import HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from main_server.database.database import get_db
+from database.database import get_db
 from schemas.server import ServerData, CreateRequestUser
 from utils.config import get_conf
-from main_server.database.repository import (
+from database.repository import (
     ServerRepository,
     TokenRepository,
     ConfigRepository,

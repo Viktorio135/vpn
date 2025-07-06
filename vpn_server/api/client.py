@@ -1,4 +1,5 @@
 import subprocess
+import logging
 
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,19 +8,16 @@ from fastapi.responses import FileResponse
 
 from dependencies import get_ip_repository, get_client_repository
 from database.repository import IPRepository, ClientRepository
-from vpn_server.core.wg import (
+from core.wg import (
     generate_keys,
     add_client_to_server_config,
     delete_client_from_server_config,
 )
 from schemas.client import CreateClientRequest, DeleteClientRequest
-from main_vpn import (
-    TOKEN,
-    DNS,
-    SERVER_PUBLIC_KEY,
-    SERVER_ENDPOINT,
-    CONFIGS_DIR,
-)
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -31,6 +29,15 @@ async def generate_config(
     ip_repo: IPRepository = Depends(get_ip_repository),
     client_repo: ClientRepository = Depends(get_client_repository)
 ):
+
+    from main_vpn import (
+        TOKEN,
+        DNS,
+        SERVER_PUBLIC_KEY,
+        SERVER_ENDPOINT,
+        CONFIGS_DIR,
+    )
+
     if request.token != TOKEN:
         raise HTTPException(status_code=401, detail='Unauthorized')
 
@@ -58,7 +65,7 @@ PersistentKeepalive = 25
 
     config_filename = f"{request.user_id}_{request.config_name}.conf"
     config_path = CONFIGS_DIR / config_filename
-
+    logger.info(f"Сохраняем конфиг клиента: {config}")
     with open(config_path, "w") as f:
         f.write(config)
 
@@ -92,6 +99,12 @@ async def delete_config(
     ip_repo: IPRepository = Depends(get_ip_repository),
     client_repo: ClientRepository = Depends(get_client_repository)
 ):
+
+    from main_vpn import (
+        TOKEN,
+        CONFIGS_DIR,
+    )
+
     if request.token != TOKEN:
         raise HTTPException(status_code=401, detail='Unauthorized')
 

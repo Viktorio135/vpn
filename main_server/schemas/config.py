@@ -8,3 +8,7 @@ class ConfigInfoResponse(BaseModel):
     config_name: str
     created_at: datetime.datetime
     expires_at: datetime.datetime
+
+
+class RenewRequest(BaseModel):
+    months: int

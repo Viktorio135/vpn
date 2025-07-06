@@ -1,3 +1,6 @@
+import logging
+
+
 import psutil
 import time
 
@@ -6,7 +9,14 @@ from fastapi import APIRouter
 from fastapi.exceptions import HTTPException
 
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+prev_net_io = psutil.net_io_counters()
+prev_time = time.time()
 
 
 @router.get('')
@@ -42,7 +52,8 @@ async def get_status():
             "sent_traffic": mb_sent_per_sec,
             "recv_traffic": mb_recv_per_sec,
         }
-    except Exception:
+    except Exception as e:
+        logger.error(f"Ошибка при получении статуса сервера: {e}")
         raise HTTPException(
             status_code=500, detail='Ошибка в получении статуса сервера'
         )

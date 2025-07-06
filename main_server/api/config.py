@@ -1,16 +1,18 @@
 import json
-
+import logging
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from fastapi.exceptions import HTTPException
-from sqlalchemy.orm import Session
 
 
-from main_gateway import CONFIGS_DIR
-from main_server.database.database import get_db
-from main_server.database.repository import WGConfigRepository
+from database.repository import ConfigRepository
 from dependencies import get_config_repo
+from schemas.config import RenewRequest
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -19,10 +21,11 @@ router = APIRouter()
 @router.post("/{config_id}/")
 async def get_config(
     config_id: int,
-    repo: WGConfigRepository = Depends(get_config_repo)
+    repo: ConfigRepository = Depends(get_config_repo)
 ):
     config = repo.get_by_id(config_id)
     if config:
+        from main_gateway import CONFIGS_DIR
         config_path = (
             CONFIGS_DIR / f"{config.user_id}_{config.config_name}.conf"
         )
@@ -44,13 +47,17 @@ async def get_config(
 @router.post("/{config_id}/renew/")
 async def renew_config(
     config_id: int,
-    months: int,
-    repo: WGConfigRepository = Depends(get_config_repo),
-    db: Session = Depends(get_db),
+    body: RenewRequest,
+    repo: ConfigRepository = Depends(get_config_repo),
 ):
-    config = repo.get_by_id(config_id)
-    if not config:
-        raise HTTPException(status_code=404, detail="Config not found")
+    months = body.months
+    try:
+        config = repo.get_by_id(config_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Config not found")
 
-    repo.add_expires(config_id, months)
-    return {"status": "renewed", "new_expires": config.expires_at}
+        repo.add_expires(config_id, months)
+        return {"status": "renewed", "new_expires": config.expires_at}
+    except Exception as e:
+        logger.error(f"Error renewing config {config_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")

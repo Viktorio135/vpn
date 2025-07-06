@@ -1,7 +1,7 @@
 import datetime
 from sqlalchemy import (Column, DateTime, Integer, String,
                         ForeignKey, Boolean, Float, BigInteger)
-from main_server.database.database import Base
+from database.database import Base
 
 
 class Servers(Base):

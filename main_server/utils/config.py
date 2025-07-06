@@ -1,17 +1,13 @@
 import httpx
 import logging
 
-
 from fastapi import Depends
 from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
 
-
-from main_server.database.database import get_db
-from main_server.database.models import Servers, Tokens
-from main_gateway import CONFIGS_DIR
-from main_server.database.repository import add_user
-
+from database.database import get_db
+from database.models import Servers
+from database.repository import ServerRepository, TokenRepository
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,8 +19,14 @@ async def get_conf(
         config_name: str | None = None
 ) -> str:
     try:
+        token_repo = TokenRepository(db)
+        server_repo = ServerRepository(db)
+
         async with httpx.AsyncClient() as client:
-            token = db.query(Tokens).filter(Tokens.server == server.id).first()
+            token = token_repo.get_by_server(server.id)
+            if not token:
+                logger.error(f"Токен для сервера {server.id} не найден")
+                raise HTTPException(status_code=400, detail="Токен не найден")
 
             response = await client.post(
                 f"http://{server.ip}:8000/client/generate-config/",
@@ -36,14 +38,16 @@ async def get_conf(
             )
             if response.status_code == 401:
                 raise HTTPException(status_code=401, detail='Unauthorized')
-
+            logger.info(f"{user_id} запрошен конфиг на сервере {server.id} {response.content}")
             # Сохраняем конфигурацию на диск
+            from main_gateway import CONFIGS_DIR
+
             config_path = CONFIGS_DIR / f"{user_id}_{config_name}.conf"
             with open(config_path, "wb") as file:
                 file.write(response.content)
 
-            # Добавляем пользователя в базу данных
-            if not add_user(db=db, server_id=server.id):
+            # Добавляем пользователя на сервер через репозиторий
+            if not server_repo.add_user(server_id=server.id):
                 logger.error(
                     (
                         f"Не удалось добавить пользователя {user_id} "

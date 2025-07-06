@@ -1,11 +1,13 @@
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from main_server.database.models import Servers, Tokens, WGConfig, User
+from database.models import Servers, Tokens, WGConfig, User
 import datetime
 from dateutil.relativedelta import relativedelta
 import logging
 
+
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

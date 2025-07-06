@@ -105,6 +105,22 @@ async def get_conf_data(config_id: int, data: dict = None):
             return None, e.response.status_code
 
 
+async def renew_conf(config_id: int, months: int):
+    async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
+        try:
+            response = await client.post(
+                f"/config/{config_id}/renew/",
+                json={"months": months}
+            )
+            response.raise_for_status()
+            return response.json(), response.status_code
+        except httpx.HTTPStatusError as e:
+            return None, e.response.status_code
+        except Exception as e:
+            logging.error(f"Error renewing config: {e}")
+            return None, 500
+
+
 @dp.message(Command("start"))
 async def start_handler(msg: Message):
     user_id = msg.from_user.id
@@ -231,11 +247,137 @@ async def config_detail(callback: types.CallbackQuery, bot: Bot):
     os.remove(file_name)
 
 
-@dp.callback_query(F.data.startswith("renew_"))
-async def renew_config(callback: types.CallbackQuery):
+class RenewState(StatesGroup):
+    CHOOSE_PERIOD = State()
+    CHOOSE_METHOD = State()
+    AWAITING_WALLET = State()
+    AWAITING_PAYMENT = State()
+
+
+@dp.callback_query(lambda c: c.data.startswith("renew_") and c.data.split("_")[1].isdigit())
+async def renew_config(callback: types.CallbackQuery, state: FSMContext):
     config_id = int(callback.data.split("_")[1])
-    # Логика продления через API
-    await callback.answer("Функция продления в разработке")
+    await state.update_data(config_id=config_id)
+    builder = InlineKeyboardBuilder()
+    periods = [
+        ("1 месяц - 1.5 USDT", 1),
+        ("3 месяца - 2.5 USDT", 3),
+        ("6 месяцев - 4 USDT", 6)
+    ]
+    for name, months in periods:
+        builder.add(InlineKeyboardButton(
+            text=name,
+            callback_data=f"renewperiod_{months}"
+        ))
+    builder.adjust(1)
+    await callback.message.answer(
+        "Выберите срок продления:",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(RenewState.CHOOSE_PERIOD)
+
+
+@dp.callback_query(RenewState.CHOOSE_PERIOD, F.data.startswith("renewperiod_"))
+async def renew_choose_method(callback: types.CallbackQuery, state: FSMContext):
+    months = int(callback.data.split("_")[1])
+    amount = {
+        1: 1.5,
+        3: 2.5,
+        6: 4.0
+    }.get(months, 1.5)
+    await state.update_data(months=months, amount=amount)
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="CryptoBot", callback_data="renewmethod_crypto"),
+        InlineKeyboardButton(text="TRC20 (0% комиссий)", callback_data="renewmethod_tron")
+    )
+    await callback.message.answer(
+        "Выберите способ оплаты:",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(RenewState.CHOOSE_METHOD)
+
+
+@dp.callback_query(RenewState.CHOOSE_METHOD, F.data.startswith("renewmethod_"))
+async def renew_payment_method(callback: types.CallbackQuery, state: FSMContext):
+    method = callback.data.split("_")[1]
+    data = await state.get_data()
+    if method == "crypto":
+        invoice = await pay.create_invoice(data['amount'], "USDT")
+        invoice.poll(message=callback.message, data={
+            'user_id': callback.from_user.id,
+            'config_id': data['config_id'],
+            'months': data['months'],
+            'renew': True
+        })
+        await callback.message.answer(
+            f"💸 Оплатите {data['amount']} USDT:\n"
+            f"<a href='{invoice.bot_invoice_url}'>Ссылка для оплаты</a>",
+            parse_mode="HTML"
+        )
+        await state.clear()
+    elif method == "tron":
+        await callback.message.answer(
+            "Введите ваш TRC20-адрес USDT для проверки транзакции:"
+        )
+        await state.set_state(RenewState.AWAITING_WALLET)
+
+
+@dp.message(RenewState.AWAITING_WALLET)
+async def renew_tron_wallet(message: Message, state: FSMContext):
+    if not re.match(r'^T[1-9A-HJ-NP-Za-km-z]{33}$', message.text):
+        await message.answer("❌ Неверный формат кошелька! Попробуйте снова:")
+        return
+    await state.update_data(wallet=message.text)
+    await state.update_data(start_time=int(time.time() * 1000))
+    data = await state.get_data()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Я перевел", callback_data="renew_check_tron")]
+    ])
+    await message.answer(
+        f"📥 Отправьте <b>{data['amount']} USDT</b> на адрес:\n"
+        f"<code>{DEPOSIT_ADDRESS}</code>\n\n"
+        "После отправки нажмите кнопку ниже для проверки.",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    await state.set_state(RenewState.AWAITING_PAYMENT)
+
+@dp.callback_query(RenewState.AWAITING_PAYMENT, F.data.in_(["renew_check_tron", "renew_recheck_tron"]))
+async def renew_check_tron_payment(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    await callback.message.edit_reply_markup()
+    try:
+        result = await check_tron_transaction(
+            sender=data['wallet'],
+            amount=data['amount'],
+            min_timestamp=data['start_time']
+        )
+        if result['status'] == 'success':
+            renew_result, status_code = await renew_conf(
+                config_id=data['config_id'],
+                months=data['months']
+            )
+            if status_code == 200:
+                await callback.message.answer(
+                    f"✅ Конфигурация успешно продлена!\n"
+                    f"Хэш транзакции: {result['tx_hash']}\n"
+                    f"Сумма: {result['amount']} USDT"
+                )
+            else:
+                await callback.message.answer("❌ Ошибка продления. Обратитесь в поддержку.")
+        elif result['status'] == 'not_found':
+            retry_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔁 Проверить ещё раз", callback_data="renew_recheck_tron")]
+            ])
+            await callback.message.answer(
+                "⚠️ Платеж не обнаружен. Проверьте детали и попробуйте ещё раз.",
+                reply_markup=retry_kb
+            )
+        else:
+            await callback.message.answer(f"🚨 Ошибка проверки: {result['message']}")
+    except Exception as e:
+        await callback.message.answer("🚨 Критическая ошибка системы. Мы уже работаем над исправлением.")
 
 
 @dp.callback_query(F.data == "buy_renew")
@@ -283,33 +425,39 @@ async def show_help(callback: types.CallbackQuery):
 
 
 @pay.invoice_polling()
-async def handle_payment(invoice: Invoice, message: types.Message, data: list):
+async def handle_payment(invoice: Invoice, message: types.Message, data: dict):
     if invoice.status == "paid":
-        config_name = str(uuid.uuid4())
-        file, status_code = await create_new_conf(data={
-            "user_id": data["user_id"],
-            "config_name": config_name,
-            "months": data["days"]
-        })
-        if int(status_code) == 200:
-            file_name = f"{data['user_id']}_{config_name}.conf"
-            with open(file_name, "wb") as f:
-                f.write(file)
-
-            # Отправляем файл пользователю
-            file = FSInputFile(file_name)
-            await message.answer_document(
-                document=file,
-                caption="✅ Оплата прошла успешно! Ваша новая конфигурация:"
+        if data.get('renew'):
+            # Продление существующей конфигурации
+            renew_result, status_code = await renew_conf(
+                config_id=data['config_id'],
+                months=data['months']
             )
-
-            # Удаляем временный файл
-            os.remove(file_name)
+            if status_code == 200:
+                await message.answer("✅ Конфигурация успешно продлена!")
+            else:
+                await message.answer("❌ Ошибка продления. Обратитесь в поддержку.")
         else:
-            await bot.send_message(
-                message.from_user.id,
-                'Что-то пошло не так('
-            )
+            # Покупка новой конфигурации
+            config_name = str(uuid.uuid4())
+            file, status_code = await create_new_conf(data={
+                "user_id": data["user_id"],
+                "config_name": config_name,
+                "months": data["days"]
+            })
+            if int(status_code) == 200:
+                file_name = f"{data['user_id']}_{config_name}.conf"
+                with open(file_name, "wb") as f:
+                    f.write(file)
+                file = FSInputFile(file_name)
+                await message.answer_document(
+                    document=file,
+                    caption="✅ Оплата прошла успешно! Ваша новая конфигурация:"
+                )
+                os.remove(file_name)
+            else:
+                await message.answer('Что-то пошло не так(')
+
 
 
 @dp.message(F.text == '💳 Приобрести')
@@ -345,13 +493,13 @@ async def process_payment(callback: types.CallbackQuery, state: FSMContext):
     }.get(days, 0.5)
 
     await state.update_data(days=days, amount=amount)
-    
+
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="CryptoBot", callback_data="method_crypto"),
         InlineKeyboardButton(text="TRC20 (0% комиссий)", callback_data="method_tron")
     )
-    
+
     await callback.message.answer(
         "Выберите способ оплаты:",
         reply_markup=builder.as_markup()
@@ -376,7 +524,7 @@ async def handle_payment_method(callback: types.CallbackQuery, state: FSMContext
             parse_mode="HTML"
         )
         await state.clear()
-    
+
     elif method == "tron":
         await callback.message.answer(
             "Введите ваш TRC20-адрес USDT для проверки транзакции:"
@@ -390,15 +538,15 @@ async def process_tron_wallet(message: Message, state: FSMContext):
     if not re.match(r'^T[1-9A-HJ-NP-Za-km-z]{33}$', message.text):
         await message.answer("❌ Неверный формат кошелька! Попробуйте снова:")
         return
-    
+
     await state.update_data(wallet=message.text)
     await state.update_data(start_time=int(time.time() * 1000))
     data = await state.get_data()
-    
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Я перевел", callback_data="check_tron")]
     ])
-    
+
     await message.answer(
         f"📥 Отправьте <b>{data['amount']} USDT</b> на адрес:\n"
         f"<code>{DEPOSIT_ADDRESS}</code>\n\n"
@@ -508,53 +656,10 @@ async def check_tron_payment(callback: CallbackQuery, state: FSMContext):
         else:
             await callback.message.answer(f"🚨 Ошибка проверки: {result['message']}")
     except Exception as e:
+        logger.error(f"Ошибка при проверке платежа: {e}")
         await callback.message.answer("🚨 Критическая ошибка системы. Мы уже работаем над исправлением.")
 
-    # Не очищаем состояние, чтобы пользователь мог повторить проверку
 
-# @dp.callback_query(F.data.startswith("subscribe_"))
-# async def process_payment(callback: types.CallbackQuery):
-#     days = int(callback.data.split("_")[1])
-#     amount = {
-#         30: 15,
-#         90: 25,
-#         180: 40
-#     }.get(days, 5)
-
-#     invoice = await pay.create_invoice(
-#         amount, "USDT"
-#     )
-#     invoice.poll(message=callback.message, data={
-#         'user_id': callback.from_user.id,
-#         'days': days
-#     })
-
-#     await callback.message.answer(
-#         f"💸 Оплатите {amount} USDT через криптобота:\n"
-#         f"<a href='{invoice.bot_invoice_url}'>Ссылка для оплаты</a>\n\n",
-#         parse_mode="HTML"
-#     )
-
-
-# @dp.callback_query(F.data.startswith("confirm_payment_"))
-# async def confirm_payment(callback: types.CallbackQuery):
-#     days = int(callback.data.split("_")[2])
-#     user_id = callback.from_user.id
-
-#     # Здесь должна быть проверка оплаты через API криптобота
-#     # Временно эмулируем успешную оплату
-
-#     result = await api_request("POST", "/get_available_server/", {
-#         "user_id": user_id,
-#         "config_name": str(uuid.uuid4()),
-#         "months": days
-#     })
-
-#     if result[1] == 200:
-#         await callback.message.answer("✅ Подписка успешно активирована!")
-#         await show_configs(callback.message)
-#     else:
-#         await callback.message.answer("❌ Ошибка активации подписки")
 @dp.message(F.text == "❓ Помощь")
 async def show_help_main(message: types.Message):
     help_text = (

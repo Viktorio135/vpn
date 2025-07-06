@@ -5,8 +5,8 @@ import requests
 from sqlalchemy.orm import Session
 
 
-from main_server.database.database import get_db
-from main_server.database.repository import get_all_servers
+from database.database import get_db
+from database.repository import ServerRepository
 
 
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def monitor_vpn_servers():
     db: Session = next(get_db())
-    servers = get_all_servers(db)
+    servers = ServerRepository(db).get_all_active()
 
     for server in servers:
         try:

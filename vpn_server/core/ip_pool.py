@@ -5,22 +5,23 @@ import logging
 from ipaddress import IPv4Network
 from sqlalchemy.orm import Session
 from database.models import IPAddress
-from main_vpn import (
-    REG_TOKEN,
-    COUNTRY,
-    SERVER_ID,
-    NAME,
-    MAX_COUNT_USERS,
-    MAIN_SERVER,
-    SERVER_ENDPOINT
-)
 
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 def register_server():
-    global TOKEN
+    from main_vpn import (
+        REG_TOKEN,
+        COUNTRY,
+        SERVER_ID,
+        NAME,
+        MAX_COUNT_USERS,
+        MAIN_SERVER,
+        SERVER_ENDPOINT,
+        TOKEN
+    )
     if TOKEN is None:
         response = requests.post(
             f'http://{MAIN_SERVER}/server/register_server/',
