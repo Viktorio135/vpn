@@ -113,10 +113,12 @@ async def delete_config(
         request.user_id, request.config_name
     )
     if not client:
+        logger.error(f"Клиент с user_id {request.user_id} и config_name {request.config_name} не найден")
         raise HTTPException(404, "Клиент не найден")
 
     ip = ip_repo.db.query(ip_repo.model).filter_by(id=client.ip_address).first()
     if not ip:
+        logger.error(f"IP-адрес для клиента {client.public_key} не найден")
         raise HTTPException(404, "IP-адрес не найден")
 
     try:

@@ -1,13 +1,14 @@
 from fastapi import FastAPI
 from pathlib import Path
 from contextlib import asynccontextmanager
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
 from dotenv import load_dotenv
 from database.database import engine
 from database.models import Base
 from utils.monitor import monitor_vpn_servers
+from utils.check_sub import check_sub
 from api.config import router as config_router
 from api.monitor import router as monitor_router
 from api.server import router as server_router
@@ -24,8 +25,9 @@ CONFIGS_DIR.mkdir(exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    scheduler = BackgroundScheduler()
+    scheduler = AsyncIOScheduler()
     scheduler.add_job(monitor_vpn_servers, 'interval', minutes=5)
+    scheduler.add_job(check_sub, 'interval', seconds=20)
     scheduler.start()
     yield
     scheduler.shutdown()

@@ -1,23 +1,20 @@
-import httpx
-import os
-
 from fastapi import APIRouter, Depends
 from fastapi.exceptions import HTTPException
+from sqlalchemy.orm import Session
 
 from schemas.user import UserCreate, DeleteRequestUser
 from schemas.config import ConfigInfoResponse
 from database.repository import (
     UserRepository,
     ConfigRepository,
-    ServerRepository,
-    TokenRepository,
+
 )
+from database.database import get_db
 from dependencies import (
     get_user_repo,
     get_config_repo,
-    get_server_repo,
-    get_token_repo,
 )
+from utils.config import delete_config
 
 
 router = APIRouter()
@@ -40,45 +37,13 @@ async def create_user_view(
 @router.post('/delete_user/')
 async def delete_user(
     data: DeleteRequestUser,
-    config_repo: ConfigRepository = Depends(get_config_repo),
-    server_repo: ServerRepository = Depends(get_server_repo),
-    token_repo: TokenRepository = Depends(get_token_repo),
+    db: Session = Depends(get_db)
 ):
-    config = config_repo.get_by_user_and_name(data.user_id, data.config_name)
-    if not config:
-        raise HTTPException(status_code=400, detail='Конфига не существует')
-    server = server_repo.get_by_id(config.server_id)
-    if not server:
-        raise HTTPException(status_code=400, detail='Сервера не существует')
-
-    token = token_repo.get_by_server(config.server_id)
-    if not token:
-        raise HTTPException(status_code=400, detail='Токен не найден')
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"http://{server.ip}:8000/delete-config/",
-            json={
-                "user_id": data.user_id,
-                "config_name": data.config_name,
-                "token": token.token,
-            }
-        )
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=500,
-            detail='Невозможно обратиться к впн серверу'
-        )
-
-    from main_gateway import CONFIGS_DIR
-
-
-    path = CONFIGS_DIR / f"{data.user_id}_{data.config_name}.conf"
-
-    if os.path.exists(path):
-        os.remove(path)
-    config_repo.delete_by_id(config.id)
-
+    await delete_config(
+        user_id=data.user_id,
+        config_name=data.config_name,
+        db=db
+    )
     return {'delete': 'OK'}
 
 
@@ -105,3 +70,27 @@ async def get_user_configs(
         created_at=c.created_at,
         expires_at=c.expires_at
     ) for c in configs]
+
+
+@router.post("/send_notification/")
+async def send_notification(
+    user_id: int,
+    text: str,
+    user_repo: UserRepository = Depends(get_user_repo)
+):
+    user = user_repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    message = {
+        "user_id": user_id,
+        "text": text
+    }
+
+    from utils.rabbitmq import RabbitMq
+    success = await RabbitMq.publish_message(message)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to send notification")
+
+    return {"status": "Notification sent"}

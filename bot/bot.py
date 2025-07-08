@@ -20,12 +20,16 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from pydantic import BaseModel
 from aiosend import CryptoPay, TESTNET
 from aiosend.types import Invoice
+
+
+from utils.api import api_request, create_new_conf, renew_conf, get_conf_data
+from states import PaymentState, RenewState
+from notifications import start_rabbit_consumer
 
 # from tronpy import Tron
 from tronpy.providers import HTTPProvider
@@ -38,19 +42,13 @@ BOT_TOKEN = os.getenv('TOKEN')
 CRYPTO_BOT_TOKEN = os.getenv('CRYPTO_BOT_TOKEN')
 
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 bot = Bot(token=BOT_TOKEN)
 pay = CryptoPay(CRYPTO_BOT_TOKEN, TESTNET)
 dp = Dispatcher()
-
-
-class PaymentState(StatesGroup):
-    start_time = State()
-    CHOOSE_METHOD = State()
-    AWAITING_WALLET = State()
-    AWAITING_PAYMENT = State()
 
 
 TRONGRID_API_KEY = os.getenv('TRONGRID_API_KEY')
@@ -65,60 +63,6 @@ class ConfigInfo(BaseModel):
     config_name: str
     created_at: str
     expires_at: str
-
-
-async def api_request(method: str, endpoint: str, data: dict = None):
-    async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
-        try:
-            response = await client.request(method, endpoint, json=data)
-            response.raise_for_status()
-            return response.json(), response.status_code
-        except httpx.HTTPStatusError as e:
-            return None, e.response.status_code
-        except Exception as e:
-            logging.error(f"API request error: {e}")
-            return None, 500
-
-
-async def create_new_conf(data: dict):
-    async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
-        try:
-            response = await client.request(
-                "POST", "/server/get_available_server/", json=data
-            )
-            response.raise_for_status()
-            return response.content, response.status_code
-        except httpx.HTTPStatusError as e:
-            return None, e.response.status_code
-        except Exception as e:
-            logging.error(f"Error creating new config: {e}")
-            return None, 500
-
-
-async def get_conf_data(config_id: int, data: dict = None):
-    async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
-        try:
-            response = await client.request("POST", f"/config/{config_id}/")
-            response.raise_for_status()
-            return response
-        except httpx.HTTPStatusError as e:
-            return None, e.response.status_code
-
-
-async def renew_conf(config_id: int, months: int):
-    async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
-        try:
-            response = await client.post(
-                f"/config/{config_id}/renew/",
-                json={"months": months}
-            )
-            response.raise_for_status()
-            return response.json(), response.status_code
-        except httpx.HTTPStatusError as e:
-            return None, e.response.status_code
-        except Exception as e:
-            logging.error(f"Error renewing config: {e}")
-            return None, 500
 
 
 @dp.message(Command("start"))
@@ -245,13 +189,6 @@ async def config_detail(callback: types.CallbackQuery, bot: Bot):
     )
 
     os.remove(file_name)
-
-
-class RenewState(StatesGroup):
-    CHOOSE_PERIOD = State()
-    CHOOSE_METHOD = State()
-    AWAITING_WALLET = State()
-    AWAITING_PAYMENT = State()
 
 
 @dp.callback_query(lambda c: c.data.startswith("renew_") and c.data.split("_")[1].isdigit())
@@ -678,7 +615,8 @@ async def show_help_main(message: types.Message):
 async def main():
     await asyncio.gather(
         dp.start_polling(bot),
-        pay.start_polling()
+        pay.start_polling(),
+        start_rabbit_consumer()
     )
 
 if __name__ == "__main__":
