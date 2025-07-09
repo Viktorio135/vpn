@@ -4,11 +4,14 @@ import logging
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from fastapi.exceptions import HTTPException
+from sqlalchemy.orm import Session
 
 
 from database.repository import ConfigRepository
+from database.database import get_db
 from dependencies import get_config_repo
 from schemas.config import RenewRequest
+from utils.config import reinstall_config
 
 
 logging.basicConfig(level=logging.INFO)
@@ -60,4 +63,17 @@ async def renew_config(
         return {"status": "renewed", "new_expires": config.expires_at}
     except Exception as e:
         logger.error(f"Error renewing config {config_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
+@router.get("/{config_id}/reinstall/")
+async def reinstall_config_view(
+    config_id: int,
+    db: Session = Depends(get_db)
+):
+    try:
+        new_config = await reinstall_config(config_id, db)
+        return {"status": "reinstalled", "config_id": new_config["config_id"]}
+    except Exception as e:
+        logger.error(f"Error reinstalling config {config_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")

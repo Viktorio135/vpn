@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from database.database import get_db
 from database.models import Servers
-from database.repository import ServerRepository, TokenRepository, ConfigRepository
+from database.repository import ServerRepository, TokenRepository, ConfigRepository, BaseRepository
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -119,3 +119,46 @@ async def delete_config(
     config_repo.delete(config.id)
 
     return {"status": "deleted"}
+
+
+async def reinstall_config(
+        config_id: int,
+        db: Session
+):
+    config_repo = ConfigRepository(db)
+    server_repo = ServerRepository(db)
+    token_repo = TokenRepository(db)
+
+    config = config_repo.get_by_id(config_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found")
+
+    server = server_repo.get_by_id(config.server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    token = token_repo.get_by_server(server.id)
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+
+    await delete_config(
+        user_id=config.user_id,
+        config_name=config.config_name,
+        db=db
+    )
+    await get_conf(
+        user_id=config.user_id,
+        server=server,
+        db=db,
+        config_name=config.config_name
+    )
+    new_config = BaseRepository.create(
+        config_repo,
+        user_id=config.user_id,
+        server_id=config.server_id,
+        config_name=config.config_name,
+        created_at=config.created_at,
+        expires_at=config.expires_at
+    )
+
+    return {"status": "reinstalled", "config_id": new_config.id}

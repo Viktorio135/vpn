@@ -1,4 +1,3 @@
-import json
 import os
 import time
 import httpx
@@ -7,7 +6,6 @@ import re
 import logging
 
 from dotenv import load_dotenv
-from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -25,14 +23,19 @@ from aiogram.types import CallbackQuery
 from pydantic import BaseModel
 from aiosend import CryptoPay, TESTNET
 from aiosend.types import Invoice
+from tronpy.providers import HTTPProvider
 
 
-from utils.api import api_request, create_new_conf, renew_conf, get_conf_data
+from utils.api import (
+    api_request,
+    create_new_conf,
+    renew_conf,
+    reinstall_conf
+)
 from states import PaymentState, RenewState
 from notifications import start_rabbit_consumer
+from services.config import send_config
 
-# from tronpy import Tron
-from tronpy.providers import HTTPProvider
 
 load_dotenv()
 
@@ -140,55 +143,29 @@ async def show_configs(message: types.Message):
 @dp.callback_query(F.data.startswith("config_"))
 async def config_detail(callback: types.CallbackQuery, bot: Bot):
     config_id = int(callback.data.split("_")[1])
-    file_content = await get_conf_data(config_id)
+    await send_config(callback, bot, config_id)
 
-    # Извлекаем заголовки
-    headers = json.loads(file_content.headers['x-data'])
 
-    # Получаем содержимое файла
-    file_content = file_content.content
-
-    # Сохраняем файл на диск
-    file_name = f"{callback.from_user.id}_{headers['config_name']}.conf"
-    with open(file_name, "wb") as file:
-        if isinstance(file_content, str):
-            file.write(file_content.encode())
+@dp.callback_query(F.data.startswith("reinstall_"))
+async def reinstall_config(callback: types.CallbackQuery):
+    config_id = int(callback.data.split("_")[1])
+    try:
+        new_config, status_code = await reinstall_conf(config_id)
+        if status_code == 200:
+            await callback.message.answer(
+                "✅ Конфигурация успешно переустановлена!",
+            )
+            print(new_config)
+            await send_config(callback, bot, new_config['config_id'])
         else:
-            file.write(file_content)  # Если это байты, записываем напрямую
-
-    # Форматируем даты
-    created_at_data_obj = datetime.fromisoformat(headers['created_at'])
-    expires_at_data_obj = datetime.fromisoformat(headers['expires_at'])
-
-    # Текст сообщения
-    text = (
-        f"🔐 Конфигурация: {headers['config_name']}\n"
-        f"📅 Создана: {created_at_data_obj.strftime('%d.%m.%Y %H:%M:%S')}\n"
-        f"⏳ Истекает: {expires_at_data_obj.strftime('%d.%m.%Y %H:%M:%S')}"
-    )
-
-    # Кнопки
-    buttons = [
-        [types.InlineKeyboardButton(
-            text="Продлить", callback_data=f"renew_{config_id}"
-        )],
-        [types.InlineKeyboardButton(
-            text="Переустановить", callback_data=f"reinstall_{config_id}"
-        )],
-    ]
-
-    # Создаем FSInputFile для отправки файла
-    file = FSInputFile(file_name)
-
-    # Отправляем файл пользователю
-    await bot.send_document(
-        chat_id=callback.message.chat.id,
-        document=file,
-        caption=text,
-        reply_markup=types.InlineKeyboardMarkup(inline_keyboard=buttons)
-    )
-
-    os.remove(file_name)
+            await callback.message.answer(
+                "❌ Ошибка переустановки конфигурации. Обратитесь в поддержку."
+            )
+    except Exception as e:
+        logger.error(f"Ошибка переустановки конфигурации {config_id}: {e}")
+        await callback.message.answer(
+            "🚨 Критическая ошибка системы. Мы уже работаем над исправлением."
+        )
 
 
 @dp.callback_query(lambda c: c.data.startswith("renew_") and c.data.split("_")[1].isdigit())

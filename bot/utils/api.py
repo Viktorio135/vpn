@@ -43,12 +43,12 @@ async def create_new_conf(data: dict):
             return None, 500
 
 
-async def get_conf_data(config_id: int, data: dict = None):
+async def get_conf_data(config_id: int):
     async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
         try:
             response = await client.request("POST", f"/config/{config_id}/")
             response.raise_for_status()
-            return response
+            return response, 200
         except httpx.HTTPStatusError as e:
             return None, e.response.status_code
 
@@ -57,3 +57,7 @@ async def renew_conf(config_id: int, months: int):
     return await api_request(
         "POST", f"/config/{config_id}/renew/", {"months": months}
     )
+
+
+async def reinstall_conf(config_id: int):
+    return await api_request("GET", f"/config/{config_id}/reinstall/")
