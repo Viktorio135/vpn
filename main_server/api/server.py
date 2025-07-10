@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database.database import get_db
 from schemas.server import ServerData, CreateRequestUser
 from utils.config import get_conf
+from utils.server import get_server
 from database.repository import (
     ServerRepository,
     TokenRepository,
@@ -84,15 +85,7 @@ async def get_available_server(
     config_repo: ConfigRepository = Depends(get_config_repo),
     db: Session = Depends(get_db),
 ):
-    servers = server_repo.get_all_active()
-    if not servers:
-        raise HTTPException(status_code=503, detail="Нет доступных серверов")
-
-    available_server = None
-    for server in servers:
-        if server.count_users < server.max_count_users:
-            available_server = server
-            break
+    available_server = get_server(db)
 
     if not available_server:
         raise HTTPException(status_code=503, detail="Все серверы заполнены")

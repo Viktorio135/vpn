@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database.database import get_db
 from database.models import Servers
 from database.repository import ServerRepository, TokenRepository, ConfigRepository, BaseRepository
+from utils.server import get_server
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -141,6 +142,8 @@ async def reinstall_config(
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
 
+    new_server = get_server(db, exclude=[server.id])
+
     await delete_config(
         user_id=config.user_id,
         config_name=config.config_name,
@@ -148,14 +151,14 @@ async def reinstall_config(
     )
     await get_conf(
         user_id=config.user_id,
-        server=server,
+        server=new_server,
         db=db,
         config_name=config.config_name
     )
     new_config = BaseRepository.create(
         config_repo,
         user_id=config.user_id,
-        server_id=config.server_id,
+        server_id=new_server.id,
         config_name=config.config_name,
         created_at=config.created_at,
         expires_at=config.expires_at
