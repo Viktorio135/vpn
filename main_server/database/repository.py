@@ -45,6 +45,28 @@ class BaseRepository:
         logger.info(f"[{self.__class__.__name__}] Updated: {obj.id}")
         return obj
 
+    def update_or_create(self, defaults: Optional[dict] = None, **kwargs):
+        if defaults is None:
+            defaults = {}
+
+        obj = self.db.query(self.model).filter_by(**kwargs).first()
+
+        if obj:
+            for key, value in defaults.items():
+                setattr(obj, key, value)
+            self.db.commit()
+            self.db.refresh(obj)
+            logger.info(f"[{self.__class__.__name__}] Updated: {obj.id}")
+            return obj, False
+        else:
+            create_data = {**kwargs, **defaults}
+            obj = self.model(**create_data)
+            self.db.add(obj)
+            self.db.commit()
+            self.db.refresh(obj)
+            logger.info(f"[{self.__class__.__name__}] Created: {obj.id}")
+            return obj, True
+
     def delete(self, obj_id: int):
         obj = self.get_by_id(obj_id)
         if not obj:
@@ -63,7 +85,10 @@ class ServerRepository(BaseRepository):
         return self.db.query(self.model).filter(self.model.ip == ip).first()
 
     def get_all_active(self) -> List[Servers]:
-        return self.db.query(self.model).filter(self.model.status.is_(True)).all()
+        return self.db.query(self.model).filter(
+            self.model.status.is_(True),
+            self.model.ip != 'bot'
+        ).all()
 
     def add_user(self, server_id: int) -> bool:
         server = self.get_by_id(server_id)

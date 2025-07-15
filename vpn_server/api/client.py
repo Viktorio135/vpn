@@ -31,15 +31,11 @@ async def generate_config(
 ):
 
     from main_vpn import (
-        TOKEN,
         DNS,
         SERVER_PUBLIC_KEY,
         SERVER_ENDPOINT,
         CONFIGS_DIR,
     )
-
-    if request.token != TOKEN:
-        raise HTTPException(status_code=401, detail='Unauthorized')
 
     # Генерируем ключи
     private_key, public_key = generate_keys()
@@ -101,12 +97,8 @@ async def delete_config(
 ):
 
     from main_vpn import (
-        TOKEN,
         CONFIGS_DIR,
     )
-
-    if request.token != TOKEN:
-        raise HTTPException(status_code=401, detail='Unauthorized')
 
     # Получаем клиента из БД
     client = client_repo.get_by_id_and_name(

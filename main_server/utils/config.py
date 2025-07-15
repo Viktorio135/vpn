@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from database.database import get_db
 from database.models import Servers
-from database.repository import ServerRepository, TokenRepository, ConfigRepository, BaseRepository
+from database.repository import ServerRepository, ConfigRepository, BaseRepository
 from utils.server import get_server
 
 logging.basicConfig(level=logging.INFO)
@@ -21,21 +21,16 @@ async def get_conf(
         config_name: str | None = None
 ) -> str:
     try:
-        token_repo = TokenRepository(db)
         server_repo = ServerRepository(db)
 
         async with httpx.AsyncClient() as client:
             token = token_repo.get_by_server(server.id)
-            if not token:
-                logger.error(f"Токен для сервера {server.id} не найден")
-                raise HTTPException(status_code=400, detail="Токен не найден")
 
             response = await client.post(
                 f"http://{server.ip}:8000/client/generate-config/",
                 json={
                     "user_id": user_id,
                     "config_name": config_name,
-                    "token": token.token,
                 }
             )
             if response.status_code == 401:
@@ -83,7 +78,6 @@ async def delete_config(
 
     config_repo = ConfigRepository(db)
     server_repo = ServerRepository(db)
-    token_repo = TokenRepository(db)
 
     config = config_repo.get_by_user_and_name(user_id, config_name)
     if not config:
@@ -92,17 +86,12 @@ async def delete_config(
     if not server:
         raise HTTPException(status_code=400, detail='Сервера не существует')
 
-    token = token_repo.get_by_server(config.server_id)
-    if not token:
-        raise HTTPException(status_code=400, detail='Токен не найден')
-
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"http://{server.ip}:8000/client/delete-config/",
             json={
                 "user_id": user_id,
                 "config_name": config_name,
-                "token": token.token,
             }
         )
     if response.status_code != 200:
@@ -128,7 +117,6 @@ async def reinstall_config(
 ):
     config_repo = ConfigRepository(db)
     server_repo = ServerRepository(db)
-    token_repo = TokenRepository(db)
 
     config = config_repo.get_by_id(config_id)
     if not config:
@@ -137,10 +125,6 @@ async def reinstall_config(
     server = server_repo.get_by_id(config.server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-
-    token = token_repo.get_by_server(server.id)
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
 
     new_server = get_server(db, exclude=[server.id])
 

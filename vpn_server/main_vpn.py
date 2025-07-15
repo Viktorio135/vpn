@@ -17,7 +17,6 @@ from api.status import router as status_router
 load_dotenv()
 
 
-
 CONFIGS_DIR = Path("./configs")
 CONFIGS_DIR.mkdir(exist_ok=True)
 

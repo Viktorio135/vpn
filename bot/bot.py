@@ -32,17 +32,18 @@ from utils.api import (
     renew_conf,
     reinstall_conf
 )
+from utils.register import register
 from states import PaymentState, RenewState
 from notifications import start_rabbit_consumer
 from services.config import send_config
 
 
-load_dotenv()
+load_dotenv('/Users/viktorshpakovskij/Step/vpn/.env')
 
 # Настройки
-API_BASE_URL = os.getenv('API_BASE_URL')
-BOT_TOKEN = os.getenv('TOKEN')
-CRYPTO_BOT_TOKEN = os.getenv('CRYPTO_BOT_TOKEN')
+API_BASE_URL = os.environ.get('API_BASE_URL')
+BOT_TOKEN = os.environ.get('TOKEN')
+CRYPTO_BOT_TOKEN = os.environ.get('CRYPTO_BOT_TOKEN')
 
 
 logging.basicConfig(level=logging.INFO)
@@ -597,5 +598,9 @@ async def main():
     )
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    if register():
+        import asyncio
+        asyncio.run(main())
+    else:
+        logger.error('invalid registration')
+        exit()
