@@ -35,10 +35,16 @@ async def send_config(
     expires_at_data_obj = datetime.fromisoformat(headers['expires_at'])
 
     # Текст сообщения
+    now = datetime.now()
+    remaining_days = (expires_at_data_obj - now).days
+
     text = (
-        f"🔐 Конфигурация: {headers['config_name']}\n"
-        f"📅 Создана: {created_at_data_obj.strftime('%d.%m.%Y %H:%M')}\n"
-        f"⏳ Истекает: {expires_at_data_obj.strftime('%d.%m.%Y %H:%M')}"
+        f"🔐 *{headers['config_name']}*\n"
+        "━━━━━━━━━━━━━\n"
+        f"📅 Создана: `{created_at_data_obj.strftime('%d.%m.%Y %H:%M')}`\n"
+        f"⏳ Истекает: `{expires_at_data_obj.strftime('%d.%m.%Y %H:%M')}`\n\n"
+        f"⏱️ *Статус:* {'✅ Активна' if remaining_days > 0 else '❌ Истекла'}\n"
+        f"⏱️ Осталось дней: `{remaining_days}`\n"
     )
 
     # Кнопки

@@ -121,7 +121,10 @@ class ConfigRepository(BaseRepository):
         months: int
     ) -> WGConfig:
         created_at = datetime.datetime.now(datetime.timezone.utc)
-        expires_at = created_at + relativedelta(months=months)
+        if months != 0:
+            expires_at = created_at + relativedelta(months=months)
+        else:
+            expires_at = created_at + relativedelta(days=5)
         expires_at = expires_at.replace(hour=23, minute=59, second=59)
 
         return super().create(

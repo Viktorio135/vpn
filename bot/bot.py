@@ -434,9 +434,9 @@ async def show_payment_options(message: types.Message):
 
     # Добавляем варианты подписок
     subscriptions = [
-        ("🌟 Базовый: 1 месяц - 1.5 USDT", 30),
-        ("🚀 Стандарт: 3 месяца - 2.5 USDT", 90),
-        ("🔥 Премиум: 6 месяцев - 4 USDT", 180)
+        ("🌟 Базовый: 1 месяц - 1.5 USDT", 1),
+        ("🚀 Стандарт: 3 месяца - 2.5 USDT", 3),
+        ("🔥 Премиум: 6 месяцев - 4 USDT", 6)
     ]
 
     for name, days in subscriptions:
@@ -465,9 +465,9 @@ async def show_payment_options(message: types.Message):
 async def process_payment(callback: types.CallbackQuery, state: FSMContext):
     days = int(callback.data.split("_")[1])
     amount = {
-        30: 1.5,
-        90: 2.5,
-        180: 4.0
+        1: 1.5,
+        3: 2.5,
+        6: 4.0
     }.get(days, 0.5)
 
     await state.update_data(days=days, amount=amount)
@@ -526,26 +526,26 @@ async def handle_payment_method(callback: types.CallbackQuery, state: FSMContext
 
     elif method == "stars":
         stars_price = {
-            30: 75,
-            90: 110,
-            180: 200
+            1: 75,
+            3: 110,
+            6: 200
         }
-        days = data['days']
-        price = [LabeledPrice(label="XTR", amount=stars_price[days])]
+        months = data['days']
+        price = [LabeledPrice(label="XTR", amount=stars_price[months])]
         # price = [LabeledPrice(label="XTR", amount=1)]
         builder = InlineKeyboardBuilder()
-        builder.button(text=f'Оплатить {stars_price[days]} звезд', pay=True)
+        builder.button(text=f'Оплатить {stars_price[months]} звезд', pay=True)
 
         await callback.message.answer_invoice(
             title="Оплата VPN подписки",
-            description=f"Подписка на VPN сроком на {days} дней",
+            description=f"Подписка на VPN сроком на {months} дней",
             prices=price,
             provider_token="",
             currency="XTR",
             reply_markup=builder.as_markup(),
             payload=json.dumps({
                 "user_id": callback.from_user.id,
-                "days": days
+                "months": months
             })
         )
         await state.clear()
@@ -563,7 +563,7 @@ async def success_payment_handler(message: Message):
     file, status_code = await create_new_conf(data={
         "user_id": payload["user_id"],
         "config_name": config_name,
-        "months": payload["days"]
+        "months": payload["months"]
     })
     if int(status_code) == 200:
         file_name = f"{payload['user_id']}_{config_name}.conf"
