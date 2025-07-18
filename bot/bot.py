@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import httpx
@@ -16,6 +17,8 @@ from aiogram.types import (
     FSInputFile,
     KeyboardButton,
     ReplyKeyboardMarkup,
+    LabeledPrice,
+    PreCheckoutQuery
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
@@ -398,6 +401,7 @@ async def show_payment_options(message: types.Message):
         reply_markup=builder.as_markup()
     )
 
+
 @dp.callback_query(F.data.startswith("subscribe_"))
 async def process_payment(callback: types.CallbackQuery, state: FSMContext):
     days = int(callback.data.split("_")[1])
@@ -411,8 +415,11 @@ async def process_payment(callback: types.CallbackQuery, state: FSMContext):
 
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="CryptoBot", callback_data="method_crypto"),
+        InlineKeyboardButton(text="CryptoBot", callback_data="method_crypto")
+    ).row(
         InlineKeyboardButton(text="TRC20 (0% комиссий)", callback_data="method_tron")
+    ).row(
+        InlineKeyboardButton(text="Звезды Telegram", callback_data="method_stars")
     )
 
     await callback.message.answer(
@@ -420,6 +427,7 @@ async def process_payment(callback: types.CallbackQuery, state: FSMContext):
         reply_markup=builder.as_markup()
     )
     await state.set_state(PaymentState.CHOOSE_METHOD)
+
 
 # Обработчик выбора метода оплаты
 @dp.callback_query(PaymentState.CHOOSE_METHOD, F.data.startswith("method_"))
@@ -445,6 +453,60 @@ async def handle_payment_method(callback: types.CallbackQuery, state: FSMContext
             "Введите ваш TRC20-адрес USDT для проверки транзакции:"
         )
         await state.set_state(PaymentState.AWAITING_WALLET)
+
+    elif method == "stars":
+        stars_price = {
+            30: 75,
+            90: 110,
+            180: 200
+        }
+        days = data['days']
+        price = [LabeledPrice(label="XTR", amount=stars_price[days])]
+        # price = [LabeledPrice(label="XTR", amount=1)]
+        builder = InlineKeyboardBuilder()
+        builder.button(text=f'Оплатить {stars_price[days]} звезд', pay=True)
+
+        await callback.message.answer_invoice(
+            title="Оплата подписки",
+            description=f"Оплатить подписку за {stars_price[days]} звезд",
+            prices=price,
+            provider_token="",
+            currency="XTR",
+            reply_markup=builder.as_markup(),
+            payload=json.dumps({
+                "user_id": callback.from_user.id,
+                "days": days
+            })
+        )
+        await state.clear()
+
+
+@dp.pre_checkout_query()
+async def pre_checkout_handler(pre_checkout_query: PreCheckoutQuery):
+    await pre_checkout_query.answer(ok=True)
+
+
+@dp.message(F.successful_payment)
+async def success_payment_handler(message: Message):
+    payload = json.loads(message.successful_payment.invoice_payload)
+    config_name = str(uuid.uuid4())
+    file, status_code = await create_new_conf(data={
+        "user_id": payload["user_id"],
+        "config_name": config_name,
+        "months": payload["days"]
+    })
+    if int(status_code) == 200:
+        file_name = f"{payload['user_id']}_{config_name}.conf"
+        with open(file_name, "wb") as f:
+            f.write(file)
+        file = FSInputFile(file_name)
+        await message.answer_document(
+            document=file,
+            caption="✅ Оплата прошла успешно! Ваша новая конфигурация:"
+        )
+        os.remove(file_name)
+    else:
+        await message.answer('Что-то пошло не так(')
 
 
 # Обработчик TRC20 адреса
