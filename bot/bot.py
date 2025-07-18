@@ -80,8 +80,14 @@ async def start_handler(msg: Message):
             f"/user/{user_id}/",
         )
     if status_code == 200:
+        welcome_text = (
+            "🔐 Добро пожаловать в VPN сервис!\n\n"
+            "Здесь вы можете приобрести безопасное подключение к интернету "
+            "и управлять своими VPN конфигурациями.\n\n"
+            "Выберите действие в меню ниже 👇"
+    )
         await msg.answer(
-            "Вы попали в главное меню!",
+            welcome_text,
             reply_markup=main_menu()
         )
     else:
@@ -98,9 +104,13 @@ async def start_handler(msg: Message):
             )
         except Exception as e:
             print(f"Error creating config: {e}")
-
+        welcome_text = (
+                "🎉 Добро пожаловать! Вы получили бесплатный тестовый период на 5 дней!\n\n"
+                "Активируйте VPN конфигурацию и наслаждайтесь безопасным интернетом.\n\n"
+                "По окончании тестового периода вы сможете выбрать подписку."
+            )
         await msg.answer(
-            "🎉 Добро пожаловать! Вам активирована бесплатная подписка на 5 дней.",
+            welcome_text,
             reply_markup=main_menu()
         )
 
@@ -122,9 +132,13 @@ async def show_configs(message: types.Message):
     )
 
     if not configs:
+        text = (
+            "🔍 У вас пока нет активных конфигураций.\n\n"
+            "Перейдите в раздел '💳 Приобрести VPN', чтобы создать первую конфигурацию."
+        )
         await bot.send_message(
             message.from_user.id,
-            "У вас пока нет конфигураций.",
+            text,
             reply_markup=main_menu()
         )
         return
@@ -136,10 +150,13 @@ async def show_configs(message: types.Message):
             callback_data=f"config_{config['id']}"
         ))
     builder.adjust(1)
-
+    text = (
+        "📂 Ваши VPN конфигурации:\n\n"
+        "Выберите конфигурацию для просмотра деталей или управления:"
+    )
     await bot.send_message(
         message.from_user.id,
-        "Ваши конфигурации:",
+        text,
         reply_markup=builder.as_markup()
     )
 
@@ -157,18 +174,18 @@ async def reinstall_config(callback: types.CallbackQuery):
         new_config, status_code = await reinstall_conf(config_id)
         if status_code == 200:
             await callback.message.answer(
-                "✅ Конфигурация успешно переустановлена!",
+                "🔄 Конфигурация успешно переустановлена!",
             )
             print(new_config)
             await send_config(callback, bot, new_config['config_id'])
         else:
             await callback.message.answer(
-                "❌ Ошибка переустановки конфигурации. Обратитесь в поддержку."
+                "⚠️ Ошибка переустановки конфигурации. Обратитесь в поддержку."
             )
     except Exception as e:
         logger.error(f"Ошибка переустановки конфигурации {config_id}: {e}")
         await callback.message.answer(
-            "🚨 Критическая ошибка системы. Мы уже работаем над исправлением."
+            "⛔️ Критическая ошибка системы. Мы уже работаем над исправлением."
         )
 
 
@@ -178,9 +195,9 @@ async def renew_config(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(config_id=config_id)
     builder = InlineKeyboardBuilder()
     periods = [
-        ("1 месяц - 1.5 USDT", 1),
-        ("3 месяца - 2.5 USDT", 3),
-        ("6 месяцев - 4 USDT", 6)
+        ("🌟 Базовый: 1 месяц - 1.5 USDT", 1),
+        ("🚀 Стандарт: 3 месяца - 2.5 USDT", 3),
+        ("🔥 Премиум: 6 месяцев - 4 USDT", 6)
     ]
     for name, months in periods:
         builder.add(InlineKeyboardButton(
@@ -188,8 +205,13 @@ async def renew_config(callback: types.CallbackQuery, state: FSMContext):
             callback_data=f"renewperiod_{months}"
         ))
     builder.adjust(1)
+    text = (
+        "⏳ <b>Выберите срок продления подписки:</b>\n\n"
+        "Чем дольше срок - тем выгоднее цена!"
+    )
     await callback.message.answer(
-        "Выберите срок продления:",
+        text,
+        parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
     await state.set_state(RenewState.CHOOSE_PERIOD)
@@ -210,7 +232,8 @@ async def renew_choose_method(callback: types.CallbackQuery, state: FSMContext):
         InlineKeyboardButton(text="TRC20 (0% комиссий)", callback_data="renewmethod_tron")
     )
     await callback.message.answer(
-        "Выберите способ оплаты:",
+        "💳 <b>Выберите способ оплаты для продления:</b>",
+        parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
     await state.set_state(RenewState.CHOOSE_METHOD)
@@ -244,7 +267,11 @@ async def renew_payment_method(callback: types.CallbackQuery, state: FSMContext)
 @dp.message(RenewState.AWAITING_WALLET)
 async def renew_tron_wallet(message: Message, state: FSMContext):
     if not re.match(r'^T[1-9A-HJ-NP-Za-km-z]{33}$', message.text):
-        await message.answer("❌ Неверный формат кошелька! Попробуйте снова:")
+        text = (
+            "❌ <b>Неверный формат кошелька!</b>\n"
+            "Пожалуйста, введите корректный TRC20-адрес:"
+        )
+        await message.answer(text)
         return
     await state.update_data(wallet=message.text)
     await state.update_data(start_time=int(time.time() * 1000))
@@ -277,25 +304,41 @@ async def renew_check_tron_payment(callback: CallbackQuery, state: FSMContext):
                 months=data['months']
             )
             if status_code == 200:
-                await callback.message.answer(
-                    f"✅ Конфигурация успешно продлена!\n"
-                    f"Хэш транзакции: {result['tx_hash']}\n"
+                text = (
+                    f"✅ <b>Конфигурация успешно продлена!</b>\n\n"
+                    f"Хэш транзакции: <code>{result['tx_hash']}</code>\n"
                     f"Сумма: {result['amount']} USDT"
                 )
+                await callback.message.answer(text, parse_mode="HTML")
             else:
-                await callback.message.answer("❌ Ошибка продления. Обратитесь в поддержку.")
+                await callback.message.answer("❌ <b>Ошибка продления.</b>\nПожалуйста, обратитесь в поддержку.", parse_mode="HTML")
         elif result['status'] == 'not_found':
             retry_kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔁 Проверить ещё раз", callback_data="renew_recheck_tron")]
             ])
+            text = (
+                "⚠️ <b>Платеж не обнаружен.</b>\n\n"
+                "Убедитесь, что:\n"
+                "1. Вы отправили USDT на указанный адрес\n"
+                "2. Сумма и сеть TRC20 верны\n"
+                "3. Транзакция подтверждена в сети\n\n"
+                "Проверку можно повторить позже."
+            )
             await callback.message.answer(
-                "⚠️ Платеж не обнаружен. Проверьте детали и попробуйте ещё раз.",
+                text,
+                parse_mode="HTML",
                 reply_markup=retry_kb
             )
         else:
-            await callback.message.answer(f"🚨 Ошибка проверки: {result['message']}")
+            text = f"🚨 <b>Ошибка проверки:</b>\n{result['message']}"
+            await callback.message.answer(text, parse_mode="HTML")
     except Exception as e:
-        await callback.message.answer("🚨 Критическая ошибка системы. Мы уже работаем над исправлением.")
+        logger.error(f"Ошибка при проверке платежа: {e}")
+        text = (
+            "⛔️ <b>Критическая ошибка системы.</b>\n"
+            "Мы уже работаем над исправлением. Пожалуйста, попробуйте позже."
+        )
+        await callback.message.answer(text, parse_mode="HTML")
 
 
 @dp.callback_query(F.data == "buy_renew")
@@ -326,14 +369,21 @@ async def buy_renew_menu(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "help")
 async def show_help(callback: types.CallbackQuery):
     help_text = (
-        "📖 Инструкция по настройке WireGuard:\n\n"
-        "1. Скачайте и установите клиент WireGuard\n"
-        "2. Импортируйте конфигурационный файл\n"
-        "3. Активируйте подключение\n"
-        "4. Готово! Ваш трафик защищен 🔒"
+        "📖 <b>Инструкция по настройке VPN</b>\n\n"
+        "1. <b>Скачайте и установите клиент WireGuard</b>\n"
+        "   Доступно для: Windows, macOS, iOS, Android, Linux\n\n"
+        "2. <b>Импортируйте конфигурационный файл</b>\n"
+        "   - Откройте WireGuard\n"
+        "   - Нажмите '+' → 'Импорт из файла'\n"
+        "   - Выберите скачанный файл .conf\n\n"
+        "3. <b>Активируйте подключение</b>\n"
+        "   - Нажмите кнопку 'Подключить' напротив вашей конфигурации\n\n"
+        "4. <b>Готово! Ваш трафик защищен</b> 🔒\n\n"
+        "Если возникли проблемы, обратитесь в поддержку."
     )
     await callback.message.edit_text(
         help_text,
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(
                 text="Назад", callback_data="back_to_main"
@@ -384,9 +434,9 @@ async def show_payment_options(message: types.Message):
 
     # Добавляем варианты подписок
     subscriptions = [
-        ("1 месяц - 1.5 USDT", 30),
-        ("3 месяца - 2.5 USDT", 90),
-        ("6 месяцев - 4 USDT", 180)
+        ("🌟 Базовый: 1 месяц - 1.5 USDT", 30),
+        ("🚀 Стандарт: 3 месяца - 2.5 USDT", 90),
+        ("🔥 Премиум: 6 месяцев - 4 USDT", 180)
     ]
 
     for name, days in subscriptions:
@@ -396,8 +446,17 @@ async def show_payment_options(message: types.Message):
         ))
 
     builder.adjust(1)
+    text = (
+        "🚀 <b>Выберите тарифный план VPN:</b>\n\n"
+        "Все планы включают:\n"
+        "✓ Неограниченный трафик\n"
+        "✓ Высокая скорость\n"
+        "✓ Защита данных\n"
+        "✓ Поддержка 24/7"
+    )
     await message.answer(
-        "Выберите тарифный план:",
+        text,
+        parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
 
@@ -423,7 +482,8 @@ async def process_payment(callback: types.CallbackQuery, state: FSMContext):
     )
 
     await callback.message.answer(
-        "Выберите способ оплаты:",
+        "💳 <b>Выберите удобный способ оплаты:</b>",
+        parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
     await state.set_state(PaymentState.CHOOSE_METHOD)
@@ -441,16 +501,26 @@ async def handle_payment_method(callback: types.CallbackQuery, state: FSMContext
             'user_id': callback.from_user.id,
             'days': data['days']
         })
+        text = (
+            f"💸 <b>Оплатите {data['amount']} USDT</b>\n\n"
+            f"Перейдите по ссылке для оплаты:\n"
+            f"<a href='{invoice.bot_invoice_url}'>Оплатить через CryptoBot</a>\n\n"
+            "После оплаты конфигурация будет отправлена автоматически."
+        )
         await callback.message.answer(
-            f"💸 Оплатите {data['amount']} USDT:\n"
-            f"<a href='{invoice.bot_invoice_url}'>Ссылка для оплаты</a>",
+            text,
             parse_mode="HTML"
         )
         await state.clear()
 
     elif method == "tron":
+        text = (
+            "📥 <b>Оплата через TRC20 (USDT)</b>\n\n"
+            "Пожалуйста, введите ваш TRC20-адрес кошелька:"
+        )
         await callback.message.answer(
-            "Введите ваш TRC20-адрес USDT для проверки транзакции:"
+            text,
+            parse_mode="HTML"
         )
         await state.set_state(PaymentState.AWAITING_WALLET)
 
@@ -467,8 +537,8 @@ async def handle_payment_method(callback: types.CallbackQuery, state: FSMContext
         builder.button(text=f'Оплатить {stars_price[days]} звезд', pay=True)
 
         await callback.message.answer_invoice(
-            title="Оплата подписки",
-            description=f"Оплатить подписку за {stars_price[days]} звезд",
+            title="Оплата VPN подписки",
+            description=f"Подписка на VPN сроком на {days} дней",
             prices=price,
             provider_token="",
             currency="XTR",
@@ -500,20 +570,33 @@ async def success_payment_handler(message: Message):
         with open(file_name, "wb") as f:
             f.write(file)
         file = FSInputFile(file_name)
+        caption = (
+            "✅ <b>Оплата прошла успешно!</b>\n\n"
+            "Ваша новая конфигурация готова к использованию:"
+        )
         await message.answer_document(
             document=file,
-            caption="✅ Оплата прошла успешно! Ваша новая конфигурация:"
+            caption=caption,
+            parse_mode="HTML"
         )
         os.remove(file_name)
     else:
-        await message.answer('Что-то пошло не так(')
+        text = (
+            "⚠️ <b>Не удалось создать конфигурацию.</b>\n\n"
+            "Пожалуйста, обратитесь в поддержку."
+        )
+        await message.answer(text, parse_mode="HTML")
 
 
 # Обработчик TRC20 адреса
 @dp.message(PaymentState.AWAITING_WALLET)
 async def process_tron_wallet(message: Message, state: FSMContext):
     if not re.match(r'^T[1-9A-HJ-NP-Za-km-z]{33}$', message.text):
-        await message.answer("❌ Неверный формат кошелька! Попробуйте снова:")
+        text = (
+            "❌ <b>Неверный формат кошелька!</b>\n"
+            "Пожалуйста, введите корректный TRC20-адрес:"
+        )
+        await message.answer(text, parse_mode="HTML")
         return
 
     await state.update_data(wallet=message.text)
@@ -584,12 +667,13 @@ async def check_tron_payment(callback: CallbackQuery, state: FSMContext):
 
         if result['status'] == 'success':
             if abs(result['amount'] - data['amount']) > 0.1:
-                await callback.message.answer(
-                    f"⚠️ Обнаружен платеж, но сумма не совпадает!\n"
+                text = (
+                    "⚠️ <b>Обнаружен платеж, но сумма не совпадает!</b>\n\n"
                     f"Отправлено: {result['amount']} USDT\n"
                     f"Требуется: {data['amount']} USDT\n\n"
-                    "Обратитесь в поддержку."
+                    "Пожалуйста, обратитесь в поддержку."
                 )
+                await callback.message.answer(text, parse_mode="HTML")
                 return
 
             file_content, status_code = await create_new_conf({
@@ -602,53 +686,76 @@ async def check_tron_payment(callback: CallbackQuery, state: FSMContext):
                 file_name = f"{callback.from_user.id}.conf"
                 with open(file_name, "wb") as f:
                     f.write(file_content)
-
+                caption = (
+                    "✅ <b>Платеж подтвержден!</b>\n\n"
+                    f"Хэш транзакции: <code>{result['tx_hash']}</code>\n"
+                    f"Сумма: {result['amount']} USDT\n\n"
+                    "Ваша конфигурация:"
+                )
                 await callback.message.answer_document(
                     FSInputFile(file_name),
-                    caption=(
-                        "✅ Платеж подтвержден!\n"
-                        f"Хэш транзакции: {result['tx_hash']}\n"
-                        f"Сумма: {result['amount']} USDT\n"
-                        "Ваша конфигурация:"
-                    )
+                    caption=caption,
+                    parse_mode="HTML"
                 )
                 os.remove(file_name)
             else:
-                await callback.message.answer("❌ Ошибка создания конфигурации. Обратитесь в поддержку.")
+                text = (
+                    "❌ <b>Ошибка создания конфигурации.</b>\n"
+                    "Пожалуйста, обратитесь в поддержку."
+                )
+                await callback.message.answer(text, parse_mode="HTML")
         elif result['status'] == 'not_found':
-            await callback.message.answer(
-                "⚠️ Платеж не обнаружен. Убедитесь, что:\n"
-                "1. Вы отправили USDT на адрес\n"
-                "2. Сумма и сеть TRC20 верны\n"
-                "3. Прошло немного времени и транзакция подтверждена\n\n"
-                "Проверку можно повторить позже.",
-                parse_mode="Markdown"
-            )
+            text = (
+                "⚠️ <b>Платеж не обнаружен.</b>\n\n"
 
-            # Добавим кнопку повторной проверки
+                "Среднее время обнаружения транзакции - около 2 минут"
+
+                "Убедитесь, что:\n"
+                "1. Вы отправили USDT на указанный адрес\n"
+                "2. Сумма и сеть TRC20 верны\n"
+                "3. Транзакция подтверждена в сети\n\n"
+                "Проверку можно повторить позже."
+            )
             retry_kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔁 Проверить ещё раз", callback_data="recheck_tron")]
             ])
-            await callback.message.answer("Хотите повторить проверку позже?", reply_markup=retry_kb)
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=retry_kb)
+
+            # # Добавим кнопку повторной проверки
+            # retry_kb = InlineKeyboardMarkup(inline_keyboard=[
+            #     [InlineKeyboardButton(text="🔁 Проверить ещё раз", callback_data="recheck_tron")]
+            # ])
+            # await callback.message.answer("Хотите повторить проверку позже?", reply_markup=retry_kb)
         else:
             await callback.message.answer(f"🚨 Ошибка проверки: {result['message']}")
     except Exception as e:
         logger.error(f"Ошибка при проверке платежа: {e}")
-        await callback.message.answer("🚨 Критическая ошибка системы. Мы уже работаем над исправлением.")
+        text = (
+            "⛔️ <b>Критическая ошибка системы.</b>\n"
+            "Мы уже работаем над исправлением. Пожалуйста, попробуйте позже."
+        )
+        await callback.message.answer(text, parse_mode="HTML")
 
 
 @dp.message(F.text == "❓ Помощь")
 async def show_help_main(message: types.Message):
     help_text = (
-        "📖 Инструкция по настройке WireGuard:\n\n"
-        "1. Скачайте и установите клиент WireGuard\n"
-        "2. Импортируйте конфигурационный файл\n"
-        "3. Активируйте подключение\n"
-        "4. Готово! Ваш трафик защищен 🔒"
+        "📖 <b>Инструкция по настройке VPN</b>\n\n"
+        "1. <b>Скачайте и установите клиент WireGuard</b>\n"
+        "   Доступно для: Windows, macOS, iOS, Android, Linux\n\n"
+        "2. <b>Импортируйте конфигурационный файл</b>\n"
+        "   - Откройте WireGuard\n"
+        "   - Нажмите '+' → 'Импорт из файла'\n"
+        "   - Выберите скачанный файл .conf\n\n"
+        "3. <b>Активируйте подключение</b>\n"
+        "   - Нажмите кнопку 'Подключить' напротив вашей конфигурации\n\n"
+        "4. <b>Готово! Ваш трафик защищен</b> 🔒\n\n"
+        "Если возникли проблемы, обратитесь в поддержку."
     )
     await bot.send_message(
         message.from_user.id,
         help_text,
+        parse_mode="HTML"
     )
 
 
