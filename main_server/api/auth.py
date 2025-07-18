@@ -41,7 +41,7 @@ async def register_server(
         exclude={'token', 'reg_token'}
     )
 
-    server = server_repo.get_by_id(int(server_dict['server_id']))
+    server = server_repo.get_by_server_id(int(server_dict['server_id']))
 
     if not server:
         server = server_repo.create(**server_dict)

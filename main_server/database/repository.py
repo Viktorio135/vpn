@@ -6,7 +6,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 
 
-from database.models import Servers, Tokens, WGConfig, User
+from database.models import Servers, WGConfig, User
 from dateutil.relativedelta import relativedelta
 
 
@@ -84,6 +84,11 @@ class ServerRepository(BaseRepository):
     def get_by_ip(self, ip: str) -> Optional[Servers]:
         return self.db.query(self.model).filter(self.model.ip == ip).first()
 
+    def get_by_server_id(self, server_id: int):
+        return self.db.query(self.model).filter(
+            self.model.server_id == server_id
+        ).first()
+
     def get_all_active(self) -> List[Servers]:
         return self.db.query(self.model).filter(
             self.model.status.is_(True),
@@ -103,20 +108,6 @@ class ServerRepository(BaseRepository):
             self.db.rollback()
             logger.error(f"[ServerRepository] Error adding user: {e}")
             return False
-
-
-class TokenRepository(BaseRepository):
-    model = Tokens
-
-    def create(self, server_id: int, token: str) -> Optional[Tokens]:
-        server = self.db.query(Servers).filter(Servers.id == server_id).first()
-        if not server:
-            logger.error(f"[TokenRepository] Server not found: {server_id}")
-            return None
-        return super().create(server=server.id, token=token)
-
-    def get_by_server(self, server_id: int) -> Optional[Tokens]:
-        return self.db.query(self.model).filter(self.model.server == server_id).first()
 
 
 class ConfigRepository(BaseRepository):

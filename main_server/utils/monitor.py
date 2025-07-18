@@ -34,5 +34,3 @@ def monitor_vpn_servers():
             logger.error(f"Ошибка опроса сервера {server.name}: {str(e)}")
             server.status = False
             db.commit()
-
-

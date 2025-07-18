@@ -37,8 +37,8 @@ async def send_config(
     # Текст сообщения
     text = (
         f"🔐 Конфигурация: {headers['config_name']}\n"
-        f"📅 Создана: {created_at_data_obj.strftime('%d.%m.%Y %H:%M:%S')}\n"
-        f"⏳ Истекает: {expires_at_data_obj.strftime('%d.%m.%Y %H:%M:%S')}"
+        f"📅 Создана: {created_at_data_obj.strftime('%d.%m.%Y %H:%M')}\n"
+        f"⏳ Истекает: {expires_at_data_obj.strftime('%d.%m.%Y %H:%M')}"
     )
 
     # Кнопки

@@ -1,6 +1,4 @@
 import os
-import psutil
-import time
 
 from fastapi import FastAPI
 from dotenv import load_dotenv
@@ -12,6 +10,7 @@ from database.database import Base, engine, get_db
 from core.ip_pool import init_ip_pool, register_server
 from api.client import router as client_router
 from api.status import router as status_router
+from api.metrics import router as metrics_router
 
 
 load_dotenv()
@@ -47,3 +46,4 @@ app = FastAPI(lifespan=lifespan)
 
 app.include_router(client_router, prefix="/client", tags=["client"])
 app.include_router(status_router, prefix="/status", tags=["status"])
+app.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
