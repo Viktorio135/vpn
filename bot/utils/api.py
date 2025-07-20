@@ -99,6 +99,14 @@ async def get_conf_data(config_id: int):
             return None, e.response.status_code
 
 
+async def create_transaction(data: dict):
+    return await api_request("POST", "/transaction/create/", data)
+
+
+async def update_transaction_status(data: dict):
+    return await api_request("POST", "/transaction/update_status/", data)
+
+
 async def renew_conf(config_id: int, months: int):
     return await api_request(
         "POST", f"/config/{config_id}/renew/", {"months": months}

@@ -17,6 +17,7 @@ from api.monitor import router as monitor_router
 from api.server import router as server_router
 from api.user import router as user_router
 from api.auth import router as auth_router
+from api.transaction import router as transaction_router
 
 
 load_dotenv()
@@ -49,3 +50,4 @@ app.include_router(monitor_router, prefix="/monitor", tags=["monitor"])
 app.include_router(server_router, prefix="/server", tags=["server"])
 app.include_router(user_router, prefix="/user", tags=["user"])
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
+app.include_router(transaction_router, prefix="/transaction", tags=["transaction"])

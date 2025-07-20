@@ -54,7 +54,7 @@ DNS = {DNS}
 
 [Peer]
 PublicKey = {SERVER_PUBLIC_KEY}
-Endpoint = {SERVER_ENDPOINT}:443
+Endpoint = {SERVER_ENDPOINT}:8080
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 """

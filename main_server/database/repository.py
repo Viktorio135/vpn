@@ -6,7 +6,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 
 
-from database.models import Servers, WGConfig, User
+from database.models import Servers, WGConfig, User, Transaction
 from dateutil.relativedelta import relativedelta
 
 
@@ -145,6 +145,10 @@ class ConfigRepository(BaseRepository):
             return None
 
         now = datetime.datetime.now(datetime.timezone.utc)
+
+        if config.expires_at.tzinfo is None:
+            config.expires_at = config.expires_at.replace(tzinfo=datetime.timezone.utc)
+
         if config.expires_at < now:
             config.expires_at = now + relativedelta(months=months)
         else:
@@ -173,3 +177,33 @@ class UserRepository(BaseRepository):
 
     def get_by_id(self, user_id: int) -> Optional[User]:
         return self.db.query(self.model).filter(self.model.client_id == user_id).first()
+
+
+class TransactionRepository(BaseRepository):
+    model = Transaction
+
+    def get_transaction_by_external_id(self, external_tx_id: str) -> Transaction | None:
+        return self.db.query(Transaction).filter_by(external_tx_id=external_tx_id).first()
+
+    def get_user_transactions(self, user_id: int) -> list[Transaction]:
+        return (
+            self.db.query(Transaction)
+            .filter_by(user_id=user_id)
+            .order_by(Transaction.created_at.desc())
+            .all()
+        )
+
+    def change_transaction_status(
+        self, transaction_id: int, status: str, external_tx_id: Optional[str] = None, comment: Optional[str] = None
+    ) -> Transaction | None:
+        transaction = self.db.query(Transaction).filter_by(id=transaction_id).first()
+        if not transaction:
+            logger.warning(f"[TransactionRepository] Transaction not found: {transaction_id}")
+            return None
+
+        transaction.status = status
+        transaction.external_tx_id = external_tx_id
+        transaction.comment = comment
+        self.db.commit()
+        logger.info(f"[TransactionRepository] Transaction status updated: {transaction.id}")
+        return transaction
