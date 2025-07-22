@@ -232,7 +232,7 @@ async def renew_choose_method(callback: types.CallbackQuery, state: FSMContext):
     builder.row(
         InlineKeyboardButton(text="CryptoBot", callback_data="renewmethod_crypto")
     ).row(
-        InlineKeyboardButton(text="TRC20 (0% комиссий)", callback_data="renewmethod_tron")
+        InlineKeyboardButton(text="USDT ( TRC20 )", callback_data="renewmethod_tron")
     ).row(
         InlineKeyboardButton(text="Звезды Telegram", callback_data="renewmethod_stars")
     )
@@ -614,9 +614,11 @@ async def process_payment(callback: types.CallbackQuery, state: FSMContext):
     builder.row(
         InlineKeyboardButton(text="CryptoBot", callback_data="method_crypto")
     ).row(
-        InlineKeyboardButton(text="TRC20 (0% комиссий)", callback_data="method_tron")
+        InlineKeyboardButton(text="USDT ( TRC20 )", callback_data="method_tron")
     ).row(
         InlineKeyboardButton(text="Звезды Telegram", callback_data="method_stars")
+    ).row(
+        InlineKeyboardButton(text="CryptoCloud (криптовалюта)   ", callback_data="method_cryptocloud")
     )
 
     await callback.message.answer(
@@ -715,6 +717,36 @@ async def handle_payment_method(callback: types.CallbackQuery, state: FSMContext
                 "months": months,
                 "transaction_id": transaction[0]['id'],
             })
+        )
+        await state.clear()
+    elif method == "cryptocloud":
+        from utils.payment import create_invoice
+
+        # Создаём транзакцию в базе
+        transaction = await create_transaction(
+            data={
+                "user_id": callback.from_user.id,
+                "amount": data["amount"],
+                "currency": "RUB",
+                "payment_method": "cryptocloud",
+                "type": "purchase"
+            }
+        )
+
+        # Создаём инвойс в CryptoCloud
+        invoice = await create_invoice(
+            amount=data["amount"],
+            currency="USD",
+            order_id=f'{callback.from_user.id}_{data["days"]}_{transaction[0]["id"]}',
+        )
+
+        await callback.message.answer(
+            text=(
+                f"💳 <b>Оплатите {data['amount']}$ через CryptoCloud</b>\n\n"
+                f"Ссылка для оплаты:\n<a href='{invoice['url']}'>Оплатить</a>\n\n"
+                "После оплаты конфигурация будет отправлена автоматически."
+            ),
+            parse_mode="HTML"
         )
         await state.clear()
 

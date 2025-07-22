@@ -16,7 +16,8 @@ class RabbitMQ:
     @classmethod
     async def get_connection(cls):
         if cls._connection is None or cls._connection.is_closed:
-            rabbitmq_url = os.getenv('RABBITMQ_URL')
+            # rabbitmq_url = os.getenv('RABBITMQ_URL')
+            rabbitmq_url = 'amqp://guest:guest@77.105.160.39:5672/'
             cls._connection = await aio_pika.connect_robust(rabbitmq_url)
         return cls._connection
 
@@ -57,8 +58,16 @@ class RabbitMQ:
     @classmethod
     async def consume_messages(cls, callback):
         try:
-            queue = await cls.get_queue()
-            await queue.consume(callback)
-            logger.info("Started consuming messages from RabbitMQ")
+            channel = await cls.get_channel()
+
+            # Очередь 1: bot_notifications
+            queue1 = await channel.declare_queue("bot_notifications", durable=True)
+            await queue1.consume(callback)
+
+            # Очередь 2: payment_notifications
+            queue2 = await channel.declare_queue("payment_notifications", durable=True)
+            await queue2.consume(callback)
+
+            logger.info("Started consuming both bot and payment notifications")
         except Exception as e:
             logger.error(f"Error consuming messages: {e}")

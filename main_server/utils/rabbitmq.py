@@ -28,7 +28,7 @@ class RabbitMq:
         return cls._channel
 
     @classmethod
-    async def get_queue(cls):
+    async def get_message_queue(cls):
         if cls._queue is None:
             channel = await cls.get_channel()
             queue_name = os.getenv('NOTIFICATION_QUEUE', 'bot_notifications')
@@ -36,10 +36,21 @@ class RabbitMq:
         return cls._queue
 
     @classmethod
-    async def publish_message(cls, message: dict):
+    async def get_payment_queue(cls):
+        if cls._queue is None:
+            channel = await cls.get_channel()
+            queue_name = os.getenv('PAYMENT_QUEUE', 'payment_notifications')
+            cls._queue = await channel.declare_queue(queue_name, durable=True)
+        return cls._queue
+
+    @classmethod
+    async def publish_message(cls, message: dict, is_payment: bool = False):
         try:
             channel = await cls.get_channel()
-            queue = await cls.get_queue()
+            if is_payment:
+                queue = await cls.get_payment_queue()
+            else:
+                queue = await cls.get_message_queue()
             message_body = json.dumps(message).encode()
             await channel.default_exchange.publish(
                 aio_pika.Message(
@@ -57,7 +68,7 @@ class RabbitMq:
     @classmethod
     async def consume_messages(cls, callback):
         try:
-            queue = await cls.get_queue()
+            queue = await cls.get_message_queue()
             await queue.consume(callback)
             logger.info("Started consuming messages from RabbitMQ")
         except Exception as e:

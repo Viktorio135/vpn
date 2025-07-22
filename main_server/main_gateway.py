@@ -18,6 +18,7 @@ from api.server import router as server_router
 from api.user import router as user_router
 from api.auth import router as auth_router
 from api.transaction import router as transaction_router
+from api.postback import router as postback_router
 
 
 load_dotenv()
@@ -51,3 +52,4 @@ app.include_router(server_router, prefix="/server", tags=["server"])
 app.include_router(user_router, prefix="/user", tags=["user"])
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(transaction_router, prefix="/transaction", tags=["transaction"])
+app.include_router(postback_router, prefix="/postback", tags=["postback"])

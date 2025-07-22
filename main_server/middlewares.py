@@ -7,7 +7,7 @@ from utils.security import verify_jwt_token
 
 class VerifyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        if request.url.path.startswith("/auth"):
+        if request.url.path.startswith("/auth") or request.url.path.startswith("/postback"):
             return await call_next(request)
 
         authorization = request.headers.get("authorization")
@@ -29,3 +29,4 @@ class VerifyMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
+

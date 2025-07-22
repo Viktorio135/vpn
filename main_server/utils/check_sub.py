@@ -24,7 +24,7 @@ async def check_sub():
                 {
                     "user_id": config.user_id,
                     "text": f"Ваш конфиг {config.config_name} истек.",
-                }
+                },
             )
             logger.info(f"Config {config.config_name} expired for user {config.user_id}.")
             if not await delete_config(
